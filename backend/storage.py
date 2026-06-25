@@ -154,6 +154,13 @@ def get_all_estimates():
             e.confidence_score,
             e.status,
             e.missing_answers,
+            e.admin_decision,
+            e.admin_decision_notes,
+            e.admin_email_subject,
+            e.admin_email_body,
+            e.admin_email_sent,
+            e.admin_email_sent_at,
+            e.admin_updated_at,
             e.compliance_report,
             e.estimate_result,
             e.customer_proposal,
@@ -170,3 +177,67 @@ def get_all_estimates():
     conn.close()
 
     return estimates
+
+def update_admin_decision(
+    estimate_id: int,
+    admin_decision: str,
+    admin_decision_notes: str | None,
+    admin_email_subject: str | None,
+    admin_email_body: str | None,
+):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        UPDATE estimates
+        SET
+            admin_decision = %s,
+            admin_decision_notes = %s,
+            admin_email_subject = %s,
+            admin_email_body = %s,
+            admin_updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s
+        RETURNING *;
+        """,
+        (
+            admin_decision,
+            admin_decision_notes,
+            admin_email_subject,
+            admin_email_body,
+            estimate_id,
+        ),
+    )
+
+    estimate = cur.fetchone()
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return estimate
+
+def mark_admin_email_sent(estimate_id: int):
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        UPDATE estimates
+        SET
+            admin_email_sent = TRUE,
+            admin_email_sent_at = CURRENT_TIMESTAMP,
+            admin_updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s
+        RETURNING *;
+        """,
+        (estimate_id,),
+    )
+
+    estimate = cur.fetchone()
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return estimate

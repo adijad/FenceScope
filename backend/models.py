@@ -20,6 +20,15 @@ EstimateStatus = Literal[
 ]
 
 
+AdminDecision = Literal[
+    "pending_review",
+    "approved_to_send",
+    "needs_customer_info",
+    "needs_site_visit",
+    "cannot_quote_as_entered",
+]
+
+
 class YardSection(BaseModel):
     location: YardLocation
     included: bool = True
@@ -75,6 +84,18 @@ class MissingQuestionsResult(BaseModel):
     missing_questions: List[str]
     confidence_score: float
 
+class AdminDecisionUpdateRequest(BaseModel):
+    admin_decision: AdminDecision
+    admin_decision_notes: Optional[str] = None
+    admin_email_subject: Optional[str] = None
+    admin_email_body: Optional[str] = None
+
+
+class AdminProposalEmailRequest(BaseModel):
+    estimate_id: int
+    to_email: str
+    subject: str
+    body: str
 
 class EstimateResult(BaseModel):
     customer_name: str

@@ -152,3 +152,24 @@ def send_estimate_summary_email(
     result["body_preview"] = body
 
     return result
+
+def send_admin_approved_proposal_email(
+    to_email: str,
+    subject: str,
+    body: str,
+) -> dict:
+    """
+    Sends the admin-reviewed customer proposal email.
+
+    This is different from the user-facing preliminary summary email.
+    The body should come from the editable admin review draft.
+    """
+    result = send_email(
+        to_email=to_email,
+        subject=subject,
+        body=body,
+    )
+
+    result["body_preview"] = body
+
+    return result

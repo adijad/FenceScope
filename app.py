@@ -22,6 +22,8 @@ ESTIMATES_URL = "http://127.0.0.1:8000/estimates"
 ADDRESS_AUTOCOMPLETE_URL = "http://127.0.0.1:8000/address/autocomplete"
 ADDRESS_PLACE_URL = "http://127.0.0.1:8000/address/place"
 EMAIL_SUMMARY_URL = "http://127.0.0.1:8000/email/estimate-summary"
+ADMIN_DECISION_URL = "http://127.0.0.1:8000/estimates/{estimate_id}/admin-decision"
+ADMIN_PROPOSAL_EMAIL_URL = "http://127.0.0.1:8000/email/admin-approved-proposal"
 
 
 # ---------------------------------------------------------
@@ -338,6 +340,39 @@ def ensure_list(value):
             return []
 
     return []
+
+
+ADMIN_DECISION_OPTIONS = {
+    "pending_review": "Pending Review",
+    "approved_to_send": "Approved to Send",
+    "needs_customer_info": "Needs Customer Info",
+    "needs_site_visit": "Needs Site Visit",
+    "cannot_quote_as_entered": "Cannot Quote As Entered",
+}
+
+
+def admin_decision_label(decision):
+    decision = decision or "pending_review"
+    return ADMIN_DECISION_OPTIONS.get(decision, status_label(decision))
+
+
+def compact_address(address, max_chars=75):
+    if not address:
+        return "No address"
+
+    address = str(address)
+
+    if len(address) <= max_chars:
+        return address
+
+    return address[: max_chars - 3] + "..."
+
+
+def status_badge_text(system_status, admin_decision=None):
+    if admin_decision and admin_decision != "pending_review":
+        return admin_decision_label(admin_decision)
+
+    return status_label(system_status)
 
 
 # ---------------------------------------------------------
@@ -1764,20 +1799,287 @@ def fetch_saved_estimates():
         return []
 
 
-def render_estimate_detail(estimate, key_prefix):
+def build_admin_decision_email(estimate, decision, notes):
+    """
+    Builds a customer-facing draft based on the human admin decision.
+
+    The system-generated proposal remains available, but this draft reflects
+    the estimator's final review decision.
+    """
+    estimate_result = ensure_dict(estimate.get("estimate_result"))
+    compliance_report = ensure_dict(estimate.get("compliance_report"))
+
+    customer_name = estimate.get("customer_name") or "there"
+    address = estimate.get("address") or "your property"
+    estimated_total = format_currency(estimate.get("estimated_total"))
+    low_range = format_currency(estimate.get("low_range"))
+    high_range = format_currency(estimate.get("high_range"))
+    compliance_overall = compliance_report.get("overall") or "Needs review"
+    compliance_jurisdiction = compliance_report.get("jurisdiction") or "local jurisdiction"
+    remaining_questions = estimate_result.get("missing_questions", [])
+
+    questions_text = "\n".join([f"- {q}" for q in remaining_questions])
+    if not questions_text:
+        questions_text = "- No additional customer questions are listed right now."
+
+    notes_text = notes.strip() if notes and notes.strip() else ""
+
+    if decision == "approved_to_send":
+        subject = f"Your preliminary fence estimate for {address}"
+        body = f"""
+Hi {customer_name},
+
+We reviewed your fence project details for {address}, and your preliminary estimate is ready.
+
+Preliminary estimate:
+{estimated_total}
+
+Expected range:
+{low_range} to {high_range}
+
+Compliance pre-check:
+{compliance_overall} - {compliance_jurisdiction}
+
+This is still a preliminary estimate. Final pricing may change after final site conditions, material selections, scheduling, and any local requirements are confirmed.
+
+{notes_text}
+
+Best,
+FenceScope Estimating Team
+""".strip()
+
+    elif decision == "needs_customer_info":
+        subject = "A few details needed for your fence estimate"
+        body = f"""
+Hi {customer_name},
+
+Thank you for submitting your fence project details for {address}.
+
+Before we can continue finalizing your estimate, we need to confirm a few details:
+
+{questions_text}
+
+{notes_text}
+
+Once we have this information, our estimating team can continue reviewing your quote.
+
+Best,
+FenceScope Estimating Team
+""".strip()
+
+    elif decision == "needs_site_visit":
+        subject = "Site visit recommended for your fence estimate"
+        body = f"""
+Hi {customer_name},
+
+Thank you for submitting your fence project details for {address}.
+
+Based on the information provided, we recommend a site visit before finalizing your quote. This will help us confirm site conditions such as fence layout, slope, access, existing fence removal, property boundaries, and any local compliance considerations.
+
+Preliminary estimate range:
+{low_range} to {high_range}
+
+{notes_text}
+
+Please reply with a few times that would work for a site visit.
+
+Best,
+FenceScope Estimating Team
+""".strip()
+
+    elif decision == "cannot_quote_as_entered":
+        subject = "Follow-up needed for your fence request"
+        body = f"""
+Hi {customer_name},
+
+Thank you for submitting your fence project details for {address}.
+
+After review, we are not able to provide a quote for the project exactly as entered. One or more project details may need to be changed or confirmed before we can continue.
+
+{notes_text or "Our team can help review the details and discuss possible next steps."}
+
+Best,
+FenceScope Estimating Team
+""".strip()
+
+    else:
+        subject = "Update on your FenceScope estimate"
+        body = f"""
+Hi {customer_name},
+
+Thank you for submitting your fence project details for {address}.
+
+Your estimate is currently being reviewed by our estimating team. We will follow up once the review is complete.
+
+{notes_text}
+
+Best,
+FenceScope Estimating Team
+""".strip()
+
+    return subject, body
+
+
+def save_admin_decision_to_backend(
+    estimate_id,
+    admin_decision,
+    admin_notes,
+    email_subject,
+    email_body,
+):
+    payload = {
+        "admin_decision": admin_decision,
+        "admin_decision_notes": admin_notes,
+        "admin_email_subject": email_subject,
+        "admin_email_body": email_body,
+    }
+
+    try:
+        response = requests.patch(
+            ADMIN_DECISION_URL.format(estimate_id=estimate_id),
+            json=payload,
+            timeout=30,
+        )
+        response.raise_for_status()
+        st.success("Admin decision saved.")
+        st.rerun()
+    except requests.exceptions.RequestException as error:
+        st.error(f"Could not save admin decision: {error}")
+        if getattr(error, "response", None) is not None:
+            st.code(error.response.text)
+
+
+def send_admin_email_from_backend(
+    estimate_id,
+    to_email,
+    subject,
+    body,
+):
+    payload = {
+        "estimate_id": estimate_id,
+        "to_email": to_email,
+        "subject": subject,
+        "body": body,
+    }
+
+    try:
+        response = requests.post(
+            ADMIN_PROPOSAL_EMAIL_URL,
+            json=payload,
+            timeout=60,
+        )
+        response.raise_for_status()
+        st.success(f"Email sent to {to_email}.")
+        st.rerun()
+    except requests.exceptions.RequestException as error:
+        st.error(f"Could not send email: {error}")
+        if getattr(error, "response", None) is not None:
+            st.code(error.response.text)
+
+
+def render_admin_action_required(estimate):
+    estimate_result = ensure_dict(estimate.get("estimate_result"))
+    compliance_report = ensure_dict(estimate.get("compliance_report"))
+    risk_flags = estimate_result.get("risk_flags", []) or []
+    remaining_questions = estimate_result.get("missing_questions", []) or []
+
+    action_items = []
+
+    if compliance_report.get("overall") == "FAIL":
+        action_items.append("Compliance failed. The estimator should not approve this estimate as entered.")
+    elif compliance_report.get("overall") == "NEEDS_REVIEW":
+        action_items.append("Review local compliance findings before sending a customer-facing quote.")
+
+    for question in remaining_questions:
+        action_items.append(f"Confirm with customer: {question}")
+
+    for risk in risk_flags:
+        severity = risk.get("severity")
+        if severity in ["high", "medium"]:
+            recommended_action = risk.get("recommended_action")
+            risk_type = risk.get("risk_type", "risk").replace("_", " ").title()
+            if recommended_action:
+                action_items.append(f"{risk_type}: {recommended_action}")
+
+    if not action_items:
+        st.success("No major action items detected. The estimate may be ready for approval after a quick review.")
+        return
+
+    for item in action_items[:8]:
+        st.write(f"- {item}")
+
+    if len(action_items) > 8:
+        st.caption(f"Showing 8 of {len(action_items)} action items. See full risk details in Developer Debug if needed.")
+
+
+def render_compliance_snapshot(report):
+    report = ensure_dict(report)
+
+    if not report:
+        st.info("No compliance report available.")
+        return
+
+    verdict = report.get("overall", "NEEDS_REVIEW")
+    jurisdiction = report.get("jurisdiction") or "jurisdiction not covered"
+
+    if verdict == "PASS":
+        st.success(f"Compliance: {verdict} - {jurisdiction}")
+    elif verdict == "FAIL":
+        st.error(f"Compliance: {verdict} - {jurisdiction}")
+    else:
+        st.warning(f"Compliance: {verdict} - {jurisdiction}")
+
+    if report.get("summary"):
+        st.write(report["summary"])
+
+    passed = []
+    needs_review = []
+    failed = []
+
+    for finding in report.get("findings", []):
+        status = finding.get("status")
+        rule_id = finding.get("rule_id", "rule")
+        if status == "pass":
+            passed.append(rule_id)
+        elif status == "fail":
+            failed.append(rule_id)
+        else:
+            needs_review.append(rule_id)
+
+    if passed:
+        st.markdown("**Passed**")
+        for rule in passed:
+            st.write(f"- {rule}")
+
+    if needs_review:
+        st.markdown("**Needs review**")
+        for rule in needs_review:
+            st.write(f"- {rule}")
+
+    if failed:
+        st.markdown("**Failed**")
+        for rule in failed:
+            st.write(f"- {rule}")
+
+    with st.expander("View ordinance details"):
+        render_compliance_report(report)
+
+
+def render_admin_review_card(estimate):
+    estimate_id = estimate.get("id")
     estimate_result = ensure_dict(estimate.get("estimate_result"))
     compliance_report = ensure_dict(estimate.get("compliance_report"))
     missing_answers = ensure_dict(estimate.get("missing_answers"))
     yard_sections = ensure_list(estimate.get("yard_sections"))
 
-    st.subheader(f"Estimate #{estimate.get('id')}")
+    st.subheader(f"Estimate #{estimate_id}")
 
-    meta_col1, meta_col2, meta_col3 = st.columns(3)
+    meta_col1, meta_col2, meta_col3 = st.columns([1.2, 1.4, 1.4])
 
     with meta_col1:
         st.write(f"**Customer:** {estimate.get('customer_name', 'Unknown')}")
-        st.write(f"**Email:** {estimate.get('customer_email', '')}")
-        st.write(f"**Phone:** {estimate.get('customer_phone', '')}")
+        st.write(f"**Email:** {estimate.get('customer_email', '') or 'Missing'}")
+        st.write(f"**Phone:** {estimate.get('customer_phone', '') or 'Missing'}")
 
     with meta_col2:
         st.write(f"**Address:** {estimate.get('address', '')}")
@@ -1785,270 +2087,292 @@ def render_estimate_detail(estimate, key_prefix):
         st.write(f"**Derived primary yard:** {yard_location_label(estimate.get('yard_location', ''))}")
 
     with meta_col3:
-        st.write(f"**Default height:** {estimate.get('height_ft', '')} ft")
-        st.write(f"**Linear feet:** {estimate.get('linear_feet', '')}")
         st.write(f"**Created:** {estimate.get('created_at', '')}")
+        st.write(f"**System status:** {status_label(estimate.get('status'))}")
+        st.write(f"**Admin decision:** {admin_decision_label(estimate.get('admin_decision'))}")
 
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
     with metric_col1:
-        st.metric("Estimated Total", format_currency(estimate.get("estimated_total")))
+        st.metric("Estimate", format_currency(estimate.get("estimated_total")))
 
     with metric_col2:
-        st.metric("Low Range", format_currency(estimate.get("low_range")))
+        st.metric("Low", format_currency(estimate.get("low_range")))
 
     with metric_col3:
-        st.metric("High Range", format_currency(estimate.get("high_range")))
+        st.metric("High", format_currency(estimate.get("high_range")))
 
     with metric_col4:
         st.metric("Confidence", estimate.get("confidence_score", "N/A"))
 
-    st.write(f"**Status:** {status_label(estimate.get('status'))}")
+    st.divider()
+
+    st.subheader("Admin Decision")
+
+    current_decision = estimate.get("admin_decision") or "pending_review"
+    if current_decision not in ADMIN_DECISION_OPTIONS:
+        current_decision = "pending_review"
+
+    admin_decision = st.selectbox(
+        "Final admin decision",
+        options=list(ADMIN_DECISION_OPTIONS.keys()),
+        index=list(ADMIN_DECISION_OPTIONS.keys()).index(current_decision),
+        format_func=lambda key: ADMIN_DECISION_OPTIONS[key],
+        key=f"admin_decision_{estimate_id}",
+    )
+
+    admin_notes = st.text_area(
+        "Decision notes",
+        value=estimate.get("admin_decision_notes") or "",
+        key=f"admin_notes_{estimate_id}",
+        height=100,
+        placeholder="Example: Site visit recommended because of slope and existing fence removal.",
+    )
+
+    compliance_failed = compliance_report.get("overall") == "FAIL"
+    can_save_or_send = True
+
+    if compliance_failed and admin_decision == "approved_to_send":
+        st.error("This estimate cannot be approved because compliance failed. Choose another decision.")
+        can_save_or_send = False
+
+    subject_input_key = f"admin_email_subject_input_{estimate_id}"
+    body_input_key = f"admin_email_body_input_{estimate_id}"
+
+    if st.button("Update Email Draft From Decision", key=f"build_email_{estimate_id}"):
+        subject, body = build_admin_decision_email(
+            estimate=estimate,
+            decision=admin_decision,
+            notes=admin_notes,
+        )
+        st.session_state[subject_input_key] = subject
+        st.session_state[body_input_key] = body
+        st.success("Email draft updated from admin decision.")
+
+    default_subject = (
+        st.session_state.get(subject_input_key)
+        or estimate.get("admin_email_subject")
+        or f"Your FenceScope estimate for {estimate.get('address')}"
+    )
+
+    default_body = (
+        st.session_state.get(body_input_key)
+        or estimate.get("admin_email_body")
+        or estimate.get("customer_proposal")
+        or estimate_result.get("customer_proposal", "")
+    )
+
+    st.subheader("Customer Email Draft")
+
+    email_subject = st.text_input(
+        "Subject",
+        value=default_subject,
+        key=subject_input_key,
+    )
+
+    email_body = st.text_area(
+        "Editable customer email",
+        value=default_body,
+        height=350,
+        key=body_input_key,
+    )
+
+    if estimate.get("admin_email_sent"):
+        st.success(f"Admin-approved email already sent at {estimate.get('admin_email_sent_at') or 'unknown time'}.")
+
+    save_col, send_col = st.columns(2)
+
+    with save_col:
+        if st.button(
+            "Save Decision",
+            key=f"save_decision_{estimate_id}",
+            disabled=not can_save_or_send,
+        ):
+            save_admin_decision_to_backend(
+                estimate_id=estimate_id,
+                admin_decision=admin_decision,
+                admin_notes=admin_notes,
+                email_subject=email_subject,
+                email_body=email_body,
+            )
+
+    with send_col:
+        send_disabled = (
+            not can_save_or_send
+            or admin_decision == "pending_review"
+            or not estimate.get("customer_email")
+            or not str(email_subject).strip()
+            or not str(email_body).strip()
+        )
+
+        if st.button(
+            "Send Approved Email",
+            key=f"send_admin_email_{estimate_id}",
+            disabled=send_disabled,
+        ):
+            send_admin_email_from_backend(
+                estimate_id=estimate_id,
+                to_email=estimate.get("customer_email"),
+                subject=email_subject,
+                body=email_body,
+            )
+
+    if send_disabled:
+        st.caption("To send, choose a non-pending decision, make sure the customer email exists, and keep the subject/body filled in.")
 
     st.divider()
 
-    st.subheader("Yard Sections")
-    render_yard_sections_table(yard_sections)
+    with st.expander("Action Required", expanded=True):
+        render_admin_action_required(estimate)
 
-    st.subheader("Compliance Report")
-    render_compliance_report(compliance_report)
+    with st.expander("Yard Sections Checked"):
+        render_yard_sections_table(yard_sections)
 
-    st.subheader("Customer Answers")
-    render_customer_answers(missing_answers)
+    with st.expander("Pricing Breakdown"):
+        render_line_items(estimate_result.get("line_items", []))
 
-    st.subheader("Line Items")
-    render_line_items(estimate_result.get("line_items", []))
+    with st.expander("Compliance Snapshot"):
+        render_compliance_snapshot(compliance_report)
 
-    st.subheader("Risk Flags")
-    render_risk_flags(estimate_result.get("risk_flags", []))
+    with st.expander("Customer Answers"):
+        render_customer_answers(missing_answers)
 
-    st.subheader("Remaining Missing Questions")
+    with st.expander("Internal Estimator Notes"):
+        internal_notes = estimate.get("internal_notes") or estimate_result.get("internal_notes", "")
+        if internal_notes:
+            st.write(internal_notes)
+        else:
+            st.info("No internal estimator notes available.")
 
-    remaining_questions = estimate_result.get("missing_questions", [])
-    if remaining_questions:
-        for question in remaining_questions:
-            st.write(f"- {question}")
-    else:
-        st.success("No remaining missing questions.")
-
-    st.subheader("Internal Estimator Notes")
-    st.text_area(
-        "Internal notes",
-        value=estimate.get("internal_notes") or estimate_result.get("internal_notes", ""),
-        height=300,
-        key=f"{key_prefix}_internal_notes_{estimate.get('id')}",
-    )
-
-    st.subheader("Customer Proposal Draft")
-    st.text_area(
-        "Proposal draft",
-        value=estimate.get("customer_proposal") or estimate_result.get("customer_proposal", ""),
-        height=350,
-        key=f"{key_prefix}_proposal_{estimate.get('id')}",
-    )
-
-    with st.expander("Raw saved estimate record"):
+    with st.expander("Developer Debug"):
         st.json(estimate)
 
 
-def render_saved_estimate_history():
-    st.subheader("Saved Estimate History")
+def render_admin_estimate_card(estimate):
+    estimate_id = estimate.get("id")
+    admin_decision = estimate.get("admin_decision") or "pending_review"
+    system_status = estimate.get("status")
+    customer_name = estimate.get("customer_name") or "Unknown customer"
+    customer_email = estimate.get("customer_email") or "missing email"
+    address = compact_address(estimate.get("address"))
+    total = format_currency(estimate.get("estimated_total"))
+    badge = status_badge_text(system_status, admin_decision)
 
+    label = f"{badge} | {customer_name} | {customer_email} | {address} | {total}"
+
+    with st.expander(label, expanded=False):
+        render_admin_review_card(estimate)
+
+
+def render_admin_review_queue():
     estimates = fetch_saved_estimates()
 
     if not estimates:
         st.info("No saved estimates found yet.")
         return
 
-    summary_rows = []
-
-    for estimate in estimates:
-        yard_sections = ensure_list(estimate.get("yard_sections"))
-        included_sections = [
-            section.get("location")
-            for section in yard_sections
-            if section.get("included", True)
-        ]
-
-        summary_rows.append(
-            {
-                "estimate_id": estimate.get("id"),
-                "created_at": estimate.get("created_at"),
-                "customer_name": estimate.get("customer_name"),
-                "address": estimate.get("address"),
-                "fence_type": estimate.get("fence_type"),
-                "derived_primary_yard": estimate.get("yard_location"),
-                "sections_checked": ", ".join(included_sections) if included_sections else "",
-                "linear_feet": estimate.get("linear_feet"),
-                "estimated_total": estimate.get("estimated_total"),
-                "status": estimate.get("status"),
-                "confidence_score": estimate.get("confidence_score"),
-            }
-        )
-
-    summary_df = pd.DataFrame(summary_rows)
-
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-    csv = summary_df.to_csv(index=False).encode("utf-8")
-
-    st.download_button(
-        label="Download Estimate History CSV",
-        data=csv,
-        file_name="fencescope_estimate_history.csv",
-        mime="text/csv",
+    total = len(estimates)
+    pending = sum(
+        1
+        for estimate in estimates
+        if (estimate.get("admin_decision") or "pending_review") == "pending_review"
     )
-
-    st.divider()
-
-    estimate_ids = [estimate.get("id") for estimate in estimates]
-
-    selected_estimate_id = st.selectbox(
-        "Select estimate ID to review",
-        estimate_ids,
-        key="saved_estimate_selector",
+    needs_site_visit = sum(
+        1
+        for estimate in estimates
+        if estimate.get("admin_decision") == "needs_site_visit"
     )
-
-    selected_estimate = next(
-        estimate for estimate in estimates if estimate.get("id") == selected_estimate_id
+    approved = sum(
+        1
+        for estimate in estimates
+        if estimate.get("admin_decision") == "approved_to_send"
     )
-
-    render_estimate_detail(selected_estimate, key_prefix="saved")
-
-
-def render_latest_session_estimate():
-    st.subheader("Latest Session Estimate")
-
-    if not st.session_state.get("estimate_result"):
-        st.info(
-            "No estimate has been generated in this session yet. Generate an estimate from User View or review saved estimates below."
-        )
-        return
-
-    result = st.session_state.estimate_result
-    compliance_report = st.session_state.get("compliance_report")
-    saved_customer = st.session_state.get("latest_saved_customer")
-    missing_answers = st.session_state.get("missing_answers", {})
-
-    if saved_customer:
-        st.success(f"Latest saved customer ID: {saved_customer.get('id')}")
 
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-    with metric_col1:
-        st.metric("Estimated Total", format_currency(result.get("estimated_total")))
-
-    with metric_col2:
-        st.metric("Low Range", format_currency(result.get("low_range")))
-
-    with metric_col3:
-        st.metric("High Range", format_currency(result.get("high_range")))
-
-    with metric_col4:
-        st.metric("Confidence", result.get("confidence_score", "N/A"))
-
-    st.write(f"**Status:** {status_label(result.get('status'))}")
-
-    if result.get("estimate_id"):
-        st.caption(f"Saved estimate ID: {result['estimate_id']}")
-
-    if compliance_report:
-        st.subheader("Compliance Report")
-        render_compliance_report(compliance_report)
-
-    st.subheader("Customer Answers")
-    render_customer_answers(missing_answers)
-
-    st.subheader("Line Items")
-    render_line_items(result.get("line_items", []))
-
-    st.subheader("Risk Flags")
-    render_risk_flags(result.get("risk_flags", []))
-
-    st.subheader("Remaining Missing Questions")
-
-    if result.get("missing_questions"):
-        for question in result["missing_questions"]:
-            st.write(f"- {question}")
-    else:
-        st.success("No remaining missing questions.")
-
-    st.subheader("Internal Estimator Notes")
-    st.text_area(
-        "Internal notes",
-        value=result.get("internal_notes", ""),
-        height=300,
-        key="latest_session_internal_notes",
-    )
-
-    st.subheader("Customer Proposal Draft")
-    st.text_area(
-        "Proposal draft",
-        value=result.get("customer_proposal", ""),
-        height=350,
-        key="latest_session_proposal",
-    )
-
-    with st.expander("Raw structured estimate output"):
-        st.json(result)
-
-
-def render_customer_history():
-    st.subheader("Customer History")
-
-    try:
-        customers = get_all_customers()
-    except Exception as error:
-        st.error("Could not load customer history from Postgres.")
-        st.exception(error)
-        return
-
-    if not customers:
-        st.info("No customers saved yet. Generate an estimate from User View first.")
-        return
-
-    df = pd.DataFrame(customers)
-
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-    csv = df.to_csv(index=False).encode("utf-8")
-
-    st.download_button(
-        label="Download Customer History CSV",
-        data=csv,
-        file_name="fencescope_customer_history.csv",
-        mime="text/csv",
-    )
+    metric_col1.metric("Total Estimates", total)
+    metric_col2.metric("Pending Review", pending)
+    metric_col3.metric("Site Visits", needs_site_visit)
+    metric_col4.metric("Approved", approved)
 
     st.divider()
 
-    st.subheader("Selected Customer Record")
+    filter_options = ["all"] + list(ADMIN_DECISION_OPTIONS.keys())
 
-    customer_ids = df["id"].tolist()
-    selected_customer_id = st.selectbox("Select customer ID", customer_ids)
+    selected_filter = st.selectbox(
+        "Filter by admin decision",
+        filter_options,
+        format_func=lambda key: "All" if key == "all" else ADMIN_DECISION_OPTIONS[key],
+    )
 
-    selected_customer = df[df["id"] == selected_customer_id].iloc[0].to_dict()
+    if selected_filter != "all":
+        estimates = [
+            estimate
+            for estimate in estimates
+            if (estimate.get("admin_decision") or "pending_review") == selected_filter
+        ]
 
-    st.json(selected_customer)
+    if not estimates:
+        st.info("No estimates match this filter.")
+        return
+
+    st.subheader("Estimate Review Queue")
+
+    for estimate in estimates:
+        render_admin_estimate_card(estimate)
+
+    st.divider()
+
+    with st.expander("Export estimate queue"):
+        summary_rows = []
+
+        for estimate in estimates:
+            yard_sections = ensure_list(estimate.get("yard_sections"))
+            included_sections = [
+                section.get("location")
+                for section in yard_sections
+                if section.get("included", True)
+            ]
+
+            summary_rows.append(
+                {
+                    "estimate_id": estimate.get("id"),
+                    "created_at": estimate.get("created_at"),
+                    "customer_name": estimate.get("customer_name"),
+                    "customer_email": estimate.get("customer_email"),
+                    "address": estimate.get("address"),
+                    "fence_type": estimate.get("fence_type"),
+                    "sections_checked": ", ".join(included_sections) if included_sections else "",
+                    "linear_feet": estimate.get("linear_feet"),
+                    "estimated_total": estimate.get("estimated_total"),
+                    "system_status": estimate.get("status"),
+                    "admin_decision": estimate.get("admin_decision") or "pending_review",
+                    "confidence_score": estimate.get("confidence_score"),
+                    "admin_email_sent": estimate.get("admin_email_sent"),
+                }
+            )
+
+        summary_df = pd.DataFrame(summary_rows)
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+        csv = summary_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            label="Download Estimate Queue CSV",
+            data=csv,
+            file_name="fencescope_estimate_queue.csv",
+            mime="text/csv",
+        )
 
 
 def render_admin_view():
     st.title("FenceScope AI Admin")
-    st.caption("Internal estimate operations dashboard for reviewing saved estimate history.")
+    st.caption("Estimator review queue for saved fence estimates.")
 
-    render_latest_session_estimate()
+    st.info(
+        "System status is the AI workflow recommendation. Admin decision is the human estimator's final action."
+    )
 
-    st.divider()
-
-    render_saved_estimate_history()
-
-    st.divider()
-
-    render_customer_history()
+    render_admin_review_queue()
 
 
 # ---------------------------------------------------------

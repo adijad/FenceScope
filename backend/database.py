@@ -82,6 +82,18 @@ def init_db():
         ADD COLUMN IF NOT EXISTS yard_sections JSONB;
         """
     )
+    cur.execute(
+        """
+        ALTER TABLE estimates
+        ADD COLUMN IF NOT EXISTS admin_decision TEXT DEFAULT 'pending_review',
+        ADD COLUMN IF NOT EXISTS admin_decision_notes TEXT,
+        ADD COLUMN IF NOT EXISTS admin_email_subject TEXT,
+        ADD COLUMN IF NOT EXISTS admin_email_body TEXT,
+        ADD COLUMN IF NOT EXISTS admin_email_sent BOOLEAN DEFAULT FALSE,
+        ADD COLUMN IF NOT EXISTS admin_email_sent_at TIMESTAMP,
+        ADD COLUMN IF NOT EXISTS admin_updated_at TIMESTAMP;
+        """
+    )
 
     conn.commit()
     cur.close()

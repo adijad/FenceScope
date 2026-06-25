@@ -5,7 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from compliance.agent import check_compliance
 from compliance.schemas import FenceSpec, ComplianceReport
 
-
+from backend.models import AdminDecisionUpdateRequest, AdminProposalEmailRequest
+from backend.storage import update_admin_decision, mark_admin_email_sent
+from backend.email_service import send_admin_approved_proposal_email
 
 from backend.address_lookup import (
     autocomplete_address,
@@ -352,3 +354,45 @@ def email_estimate_summary(request: EstimateEmailRequest):
                 "error": str(error),
             },
         )
+    
+@app.patch("/estimates/{estimate_id}/admin-decision")
+def save_admin_decision(
+    estimate_id: int,
+    request: AdminDecisionUpdateRequest,
+):
+    updated = update_admin_decision(
+        estimate_id=estimate_id,
+        admin_decision=request.admin_decision,
+        admin_decision_notes=request.admin_decision_notes,
+        admin_email_subject=request.admin_email_subject,
+        admin_email_body=request.admin_email_body,
+    )
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Estimate not found.")
+
+    return jsonable_encoder(updated)
+
+
+@app.post("/email/admin-approved-proposal")
+def email_admin_approved_proposal(request: AdminProposalEmailRequest):
+    try:
+        result = send_admin_approved_proposal_email(
+            to_email=request.to_email,
+            subject=request.subject,
+            body=request.body,
+        )
+
+        mark_admin_email_sent(request.estimate_id)
+
+        return result
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Could not send admin-approved proposal email.",
+                "error": str(error),
+            },
+        )
+    

@@ -12,4 +12,5 @@ streamlit-folium
 folium
 streamlit-searchbox
 psycopg[binary]
+psycopg2-binary
 pytest

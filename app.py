@@ -1,5 +1,6 @@
 import json
 import math
+import re
 
 import folium
 import pandas as pd
@@ -11,12 +12,13 @@ from streamlit_folium import st_folium
 from streamlit_searchbox import st_searchbox
 
 from backend.database import init_db
-from backend.storage import create_customer, get_all_customers
+from backend.storage import get_all_customers
 
 
 API_URL = "http://127.0.0.1:8000/estimate"
 PRECHECK_URL = "http://127.0.0.1:8000/precheck"
 QUESTIONS_URL = "http://127.0.0.1:8000/questions"
+ESTIMATES_URL = "http://127.0.0.1:8000/estimates"
 ADDRESS_AUTOCOMPLETE_URL = "http://127.0.0.1:8000/address/autocomplete"
 ADDRESS_PLACE_URL = "http://127.0.0.1:8000/address/place"
 
@@ -233,6 +235,7 @@ def render_sidebar():
             **Pricing engine:** Calculates price deterministically  
             **Risk agent:** Reviews risks and missing info  
             **Proposal agent:** Drafts internal proposal copy  
+            **Postgres:** Stores full estimate history  
             **Human review:** Controls final action
             """
         )
@@ -245,7 +248,11 @@ def render_sidebar():
 
 
 def render_compliance_report(report):
-    verdict = report["overall"]
+    if not report:
+        st.info("No compliance report available.")
+        return
+
+    verdict = report.get("overall", "NEEDS_REVIEW")
     jurisdiction = report.get("jurisdiction") or "jurisdiction not covered"
 
     if verdict == "PASS":
@@ -263,12 +270,12 @@ def render_compliance_report(report):
             "pass": "✅",
             "fail": "❌",
             "needs_review": "⚠️",
-        }.get(finding["status"], "⚠️")
+        }.get(finding.get("status"), "⚠️")
 
         with st.expander(
-            f"{icon} {finding['rule_id']}  (confidence {finding['confidence']})"
+            f"{icon} {finding.get('rule_id', 'rule')}  (confidence {finding.get('confidence', 'N/A')})"
         ):
-            st.write(finding["explanation"])
+            st.write(finding.get("explanation", "No explanation provided."))
 
             if finding.get("verbatim_text"):
                 st.markdown(f"> {finding['verbatim_text']}")
@@ -305,6 +312,7 @@ def render_failed_compliance_guidance(report):
         st.warning(
             "The compliance checker found a blocking issue. Review the selected fence height, yard location, material, and property address."
         )
+
 
 def normalize_question_text(question: str) -> str:
     return question.strip().lower()
@@ -343,9 +351,15 @@ def question_key_from_text(question: str) -> str:
     return "free_text"
 
 
+def stable_question_suffix(question: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9]+", "_", question.strip().lower())
+    return cleaned[:50]
+
+
 def render_typed_question_input(question: str, idx: int) -> str:
     question_key = question_key_from_text(question)
-    base_key = f"typed_question_{idx}_{question_key}"
+    question_suffix = stable_question_suffix(question)
+    base_key = f"typed_question_{idx}_{question_key}_{question_suffix}"
 
     st.markdown(f"**{question}**")
 
@@ -479,7 +493,10 @@ def render_typed_question_input(question: str, idx: int) -> str:
         if old_fence_length <= 0:
             return f"Old fence condition: {condition}. Old fence length: not sure."
 
-        return f"Old fence condition: {condition}. Approximate removal length: {old_fence_length:.0f} linear feet."
+        return (
+            f"Old fence condition: {condition}. "
+            f"Approximate removal length: {old_fence_length:.0f} linear feet."
+        )
 
     if question_key == "slope_details":
         slope_level = st.selectbox(
@@ -659,6 +676,53 @@ def missing_questions_ready():
     )
 
 
+def render_risk_flags(risk_flags):
+    if not risk_flags:
+        st.write("No major risks flagged.")
+        return
+
+    for risk in risk_flags:
+        severity = risk.get("severity", "unknown").upper()
+        risk_type = risk.get("risk_type", "risk").replace("_", " ").title()
+        explanation = risk.get("explanation", "No explanation provided.")
+        recommended_action = risk.get("recommended_action", "No recommended action provided.")
+
+        st.markdown(
+            f"""
+            **{risk_type}**  
+            Severity: `{severity}`  
+            {explanation}  
+            Recommended action: {recommended_action}
+            """
+        )
+
+
+def render_line_items(line_items):
+    if not line_items:
+        st.info("No line items available.")
+        return
+
+    line_items_df = pd.DataFrame(line_items)
+    st.dataframe(line_items_df, use_container_width=True)
+
+
+def render_customer_answers(missing_answers):
+    answered_items = {
+        question: answer
+        for question, answer in (missing_answers or {}).items()
+        if answer and str(answer).strip()
+    }
+
+    if not answered_items:
+        st.info("No additional customer answers captured for this estimate.")
+        return
+
+    for question, answer in answered_items.items():
+        st.markdown(f"**Q:** {question}")
+        st.markdown(f"**A:** {answer}")
+        st.divider()
+
+
 def render_estimate_summary(result):
     st.subheader("Estimate Summary")
 
@@ -685,6 +749,9 @@ def render_estimate_summary(result):
     else:
         st.error(f"Status: {status}")
 
+    if result.get("estimate_id"):
+        st.caption(f"Saved estimate ID: {result['estimate_id']}")
+
     st.info(
         "This is a preliminary estimate. A representative will review the project details before a final quote is issued."
     )
@@ -695,30 +762,15 @@ def render_estimate_summary(result):
 
     with left_col:
         st.subheader("Line Items")
-
-        line_items_df = pd.DataFrame(result["line_items"])
-        st.dataframe(line_items_df, use_container_width=True)
+        render_line_items(result.get("line_items", []))
 
         st.subheader("Risk Flags")
-
-        if result["risk_flags"]:
-            for risk in result["risk_flags"]:
-                severity = risk["severity"].upper()
-                st.markdown(
-                    f"""
-                    **{risk['risk_type'].replace('_', ' ').title()}**  
-                    Severity: `{severity}`  
-                    {risk['explanation']}  
-                    Recommended action: {risk['recommended_action']}
-                    """
-                )
-        else:
-            st.write("No major risks flagged.")
+        render_risk_flags(result.get("risk_flags", []))
 
     with right_col:
         st.subheader("Remaining Missing Questions")
 
-        if result["missing_questions"]:
+        if result.get("missing_questions"):
             for question in result["missing_questions"]:
                 st.write(f"- {question}")
         else:
@@ -738,10 +790,6 @@ def render_user_view():
         "AI-assisted estimate triage and proposal workflow for residential fencing companies."
     )
 
-    # -----------------------------
-    # Customer Details
-    # -----------------------------
-
     st.subheader("1. Customer Details")
 
     customer_col1, customer_col2, customer_col3 = st.columns(3)
@@ -756,10 +804,6 @@ def render_user_view():
         customer_phone = st.text_input("Phone number", "(540) 555-0198")
 
     st.divider()
-
-    # -----------------------------
-    # Property Details
-    # -----------------------------
 
     st.subheader("2. Property Details")
 
@@ -862,10 +906,6 @@ def render_user_view():
     )
 
     st.divider()
-
-    # -----------------------------
-    # Map Measurement
-    # -----------------------------
 
     st.subheader("3. Map-Based Fence Measurement")
     st.caption(
@@ -970,10 +1010,6 @@ def render_user_view():
 
     st.divider()
 
-    # -----------------------------
-    # Shared Payload
-    # -----------------------------
-
     payload = {
         "customer_name": customer_name,
         "customer_email": customer_email,
@@ -1005,10 +1041,6 @@ def render_user_view():
 
     if st.session_state.last_payload_fingerprint is None:
         st.session_state.last_payload_fingerprint = payload_fingerprint
-
-    # -----------------------------
-    # Compliance Pre-Check
-    # -----------------------------
 
     st.subheader("4. Fence Code Compliance Pre-Check")
 
@@ -1057,17 +1089,9 @@ def render_user_view():
 
     st.divider()
 
-    # -----------------------------
-    # Additional Questions
-    # -----------------------------
-
     render_missing_questions_section(payload)
 
     st.divider()
-
-    # -----------------------------
-    # Estimate Generation
-    # -----------------------------
 
     st.subheader("6. Generate Estimate")
 
@@ -1095,7 +1119,7 @@ def render_user_view():
                 [
                     f"{question}: {answer}"
                     for question, answer in st.session_state.missing_answers.items()
-                    if answer and answer.strip()
+                    if answer and str(answer).strip()
                 ]
             )
 
@@ -1124,143 +1148,253 @@ def render_user_view():
             result = response.json()
             st.session_state.estimate_result = result
 
-            try:
-                customer = create_customer(
-                    name=customer_name,
-                    email=customer_email,
-                    phone=customer_phone,
-                    address=selected_address,
-                )
+            st.success(
+                f"Estimate generated successfully. Estimate saved with ID: {result.get('estimate_id')}."
+            )
 
-                st.session_state.latest_saved_customer = customer
-
-                st.success(
-                    f"Estimate generated successfully. Customer saved with ID: {customer['id']}."
-                )
-
-            except Exception as error:
-                st.warning(
-                    "Estimate was generated, but customer details could not be saved to Postgres."
-                )
-                st.exception(error)
+            st.session_state.latest_saved_customer = {
+                "id": result.get("customer_id"),
+                "name": customer_name,
+                "email": customer_email,
+                "phone": customer_phone,
+                "address": selected_address,
+            }
 
     if st.session_state.estimate_result:
         render_estimate_summary(st.session_state.estimate_result)
 
 
-def render_admin_view():
-    st.title("FenceScope AI Admin")
-    st.caption("Internal estimate operations dashboard for reviewing customer intake history.")
+def fetch_saved_estimates():
+    try:
+        response = requests.get(ESTIMATES_URL, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as error:
+        st.error(f"Could not load saved estimates from backend: {error}")
+        return []
 
-    # -----------------------------
-    # Latest Estimate Review
-    # -----------------------------
 
-    st.subheader("Latest Estimate Review")
+def render_estimate_detail(estimate, key_prefix):
+    estimate_result = estimate.get("estimate_result") or {}
+    compliance_report = estimate.get("compliance_report") or {}
+    missing_answers = estimate.get("missing_answers") or {}
 
-    if st.session_state.get("estimate_result"):
-        result = st.session_state.estimate_result
-        compliance_report = st.session_state.get("compliance_report")
-        saved_customer = st.session_state.get("latest_saved_customer")
-        missing_answers = st.session_state.get("missing_answers", {})
+    st.subheader(f"Estimate #{estimate.get('id')}")
 
-        if saved_customer:
-            st.success(f"Latest saved customer ID: {saved_customer['id']}")
+    meta_col1, meta_col2, meta_col3 = st.columns(3)
 
-        metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    with meta_col1:
+        st.write(f"**Customer:** {estimate.get('customer_name', 'Unknown')}")
+        st.write(f"**Email:** {estimate.get('customer_email', '')}")
+        st.write(f"**Phone:** {estimate.get('customer_phone', '')}")
 
-        with metric_col1:
-            st.metric("Estimated Total", f"${result['estimated_total']:,.2f}")
+    with meta_col2:
+        st.write(f"**Address:** {estimate.get('address', '')}")
+        st.write(f"**Fence type:** {estimate.get('fence_type', '')}")
+        st.write(f"**Yard location:** {estimate.get('yard_location', '')}")
 
-        with metric_col2:
-            st.metric("Low Range", f"${result['low_range']:,.2f}")
+    with meta_col3:
+        st.write(f"**Height:** {estimate.get('height_ft', '')} ft")
+        st.write(f"**Linear feet:** {estimate.get('linear_feet', '')}")
+        st.write(f"**Created:** {estimate.get('created_at', '')}")
 
-        with metric_col3:
-            st.metric("High Range", f"${result['high_range']:,.2f}")
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
-        with metric_col4:
-            st.metric("Confidence", result["confidence_score"])
+    with metric_col1:
+        total = estimate.get("estimated_total")
+        st.metric("Estimated Total", f"${total:,.2f}" if total is not None else "N/A")
 
-        st.write(f"**Status:** {result['status'].replace('_', ' ').title()}")
+    with metric_col2:
+        low = estimate.get("low_range")
+        st.metric("Low Range", f"${low:,.2f}" if low is not None else "N/A")
 
-        if compliance_report:
-            st.subheader("Compliance Report")
-            render_compliance_report(compliance_report)
+    with metric_col3:
+        high = estimate.get("high_range")
+        st.metric("High Range", f"${high:,.2f}" if high is not None else "N/A")
 
-        st.subheader("Customer Answers")
+    with metric_col4:
+        st.metric("Confidence", estimate.get("confidence_score", "N/A"))
 
-        answered_items = {
-            question: answer
-            for question, answer in missing_answers.items()
-            if answer and answer.strip()
-        }
-
-        if answered_items:
-            for question, answer in answered_items.items():
-                st.markdown(f"**Q:** {question}")
-                st.markdown(f"**A:** {answer}")
-                st.divider()
-        else:
-            st.info("No additional customer answers captured for this estimate.")
-
-        st.subheader("Line Items")
-        st.dataframe(
-            pd.DataFrame(result["line_items"]),
-            use_container_width=True,
-        )
-
-        st.subheader("Risk Flags")
-
-        if result["risk_flags"]:
-            for risk in result["risk_flags"]:
-                severity = risk["severity"].upper()
-                st.markdown(
-                    f"""
-                    **{risk['risk_type'].replace('_', ' ').title()}**  
-                    Severity: `{severity}`  
-                    {risk['explanation']}  
-                    Recommended action: {risk['recommended_action']}
-                    """
-                )
-        else:
-            st.write("No major risks flagged.")
-
-        st.subheader("Remaining Missing Questions")
-
-        if result["missing_questions"]:
-            for question in result["missing_questions"]:
-                st.write(f"- {question}")
-        else:
-            st.success("No remaining missing questions.")
-
-        st.subheader("Internal Estimator Notes")
-        st.text_area(
-            "Internal notes",
-            value=result.get("internal_notes", ""),
-            height=300,
-        )
-
-        st.subheader("Customer Proposal Draft")
-        st.text_area(
-            "Proposal draft",
-            value=result.get("customer_proposal", ""),
-            height=350,
-        )
-
-        with st.expander("Raw structured estimate output"):
-            st.json(result)
-
-    else:
-        st.info(
-            "No estimate has been generated in this session yet. Generate an estimate from User View, then return here for review."
-        )
+    st.write(f"**Status:** {(estimate.get('status') or 'unknown').replace('_', ' ').title()}")
 
     st.divider()
 
-    # -----------------------------
-    # Customer History
-    # -----------------------------
+    st.subheader("Compliance Report")
+    render_compliance_report(compliance_report)
 
+    st.subheader("Customer Answers")
+    render_customer_answers(missing_answers)
+
+    st.subheader("Line Items")
+    render_line_items(estimate_result.get("line_items", []))
+
+    st.subheader("Risk Flags")
+    render_risk_flags(estimate_result.get("risk_flags", []))
+
+    st.subheader("Remaining Missing Questions")
+
+    remaining_questions = estimate_result.get("missing_questions", [])
+    if remaining_questions:
+        for question in remaining_questions:
+            st.write(f"- {question}")
+    else:
+        st.success("No remaining missing questions.")
+
+    st.subheader("Internal Estimator Notes")
+    st.text_area(
+        "Internal notes",
+        value=estimate.get("internal_notes") or estimate_result.get("internal_notes", ""),
+        height=300,
+        key=f"{key_prefix}_internal_notes_{estimate.get('id')}",
+    )
+
+    st.subheader("Customer Proposal Draft")
+    st.text_area(
+        "Proposal draft",
+        value=estimate.get("customer_proposal") or estimate_result.get("customer_proposal", ""),
+        height=350,
+        key=f"{key_prefix}_proposal_{estimate.get('id')}",
+    )
+
+    with st.expander("Raw saved estimate record"):
+        st.json(estimate)
+
+
+def render_saved_estimate_history():
+    st.subheader("Saved Estimate History")
+
+    estimates = fetch_saved_estimates()
+
+    if not estimates:
+        st.info("No saved estimates found yet.")
+        return
+
+    summary_rows = []
+
+    for estimate in estimates:
+        summary_rows.append(
+            {
+                "estimate_id": estimate.get("id"),
+                "created_at": estimate.get("created_at"),
+                "customer_name": estimate.get("customer_name"),
+                "address": estimate.get("address"),
+                "fence_type": estimate.get("fence_type"),
+                "yard_location": estimate.get("yard_location"),
+                "linear_feet": estimate.get("linear_feet"),
+                "estimated_total": estimate.get("estimated_total"),
+                "status": estimate.get("status"),
+                "confidence_score": estimate.get("confidence_score"),
+            }
+        )
+
+    summary_df = pd.DataFrame(summary_rows)
+
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+    csv = summary_df.to_csv(index=False).encode("utf-8")
+
+    st.download_button(
+        label="Download Estimate History CSV",
+        data=csv,
+        file_name="fencescope_estimate_history.csv",
+        mime="text/csv",
+    )
+
+    st.divider()
+
+    estimate_ids = [estimate.get("id") for estimate in estimates]
+
+    selected_estimate_id = st.selectbox(
+        "Select estimate ID to review",
+        estimate_ids,
+        key="saved_estimate_selector",
+    )
+
+    selected_estimate = next(
+        estimate for estimate in estimates if estimate.get("id") == selected_estimate_id
+    )
+
+    render_estimate_detail(selected_estimate, key_prefix="saved")
+
+
+def render_latest_session_estimate():
+    st.subheader("Latest Session Estimate")
+
+    if not st.session_state.get("estimate_result"):
+        st.info(
+            "No estimate has been generated in this session yet. Generate an estimate from User View or review saved estimates below."
+        )
+        return
+
+    result = st.session_state.estimate_result
+    compliance_report = st.session_state.get("compliance_report")
+    saved_customer = st.session_state.get("latest_saved_customer")
+    missing_answers = st.session_state.get("missing_answers", {})
+
+    if saved_customer:
+        st.success(f"Latest saved customer ID: {saved_customer.get('id')}")
+
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+    with metric_col1:
+        st.metric("Estimated Total", f"${result['estimated_total']:,.2f}")
+
+    with metric_col2:
+        st.metric("Low Range", f"${result['low_range']:,.2f}")
+
+    with metric_col3:
+        st.metric("High Range", f"${result['high_range']:,.2f}")
+
+    with metric_col4:
+        st.metric("Confidence", result["confidence_score"])
+
+    st.write(f"**Status:** {result['status'].replace('_', ' ').title()}")
+
+    if result.get("estimate_id"):
+        st.caption(f"Saved estimate ID: {result['estimate_id']}")
+
+    if compliance_report:
+        st.subheader("Compliance Report")
+        render_compliance_report(compliance_report)
+
+    st.subheader("Customer Answers")
+    render_customer_answers(missing_answers)
+
+    st.subheader("Line Items")
+    render_line_items(result.get("line_items", []))
+
+    st.subheader("Risk Flags")
+    render_risk_flags(result.get("risk_flags", []))
+
+    st.subheader("Remaining Missing Questions")
+
+    if result.get("missing_questions"):
+        for question in result["missing_questions"]:
+            st.write(f"- {question}")
+    else:
+        st.success("No remaining missing questions.")
+
+    st.subheader("Internal Estimator Notes")
+    st.text_area(
+        "Internal notes",
+        value=result.get("internal_notes", ""),
+        height=300,
+        key="latest_session_internal_notes",
+    )
+
+    st.subheader("Customer Proposal Draft")
+    st.text_area(
+        "Proposal draft",
+        value=result.get("customer_proposal", ""),
+        height=350,
+        key="latest_session_proposal",
+    )
+
+    with st.expander("Raw structured estimate output"):
+        st.json(result)
+
+
+def render_customer_history():
     st.subheader("Customer History")
 
     try:
@@ -1301,6 +1435,21 @@ def render_admin_view():
     selected_customer = df[df["id"] == selected_customer_id].iloc[0].to_dict()
 
     st.json(selected_customer)
+
+
+def render_admin_view():
+    st.title("FenceScope AI Admin")
+    st.caption("Internal estimate operations dashboard for reviewing saved estimate history.")
+
+    render_latest_session_estimate()
+
+    st.divider()
+
+    render_saved_estimate_history()
+
+    st.divider()
+
+    render_customer_history()
 
 
 def main():

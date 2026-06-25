@@ -1,6 +1,7 @@
 # backend/database.py
 
 import os
+
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
@@ -29,6 +30,46 @@ def init_db():
             email TEXT NOT NULL,
             phone TEXT,
             address TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """
+    )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS estimates (
+            id SERIAL PRIMARY KEY,
+            customer_id INTEGER REFERENCES customers(id) ON DELETE CASCADE,
+
+            address TEXT NOT NULL,
+            property_lat DOUBLE PRECISION,
+            property_lng DOUBLE PRECISION,
+
+            fence_type TEXT NOT NULL,
+            yard_location TEXT NOT NULL,
+            height_ft INTEGER NOT NULL,
+            linear_feet DOUBLE PRECISION NOT NULL,
+
+            gate_count INTEGER DEFAULT 0,
+            double_gate_count INTEGER DEFAULT 0,
+            old_fence_removal BOOLEAN DEFAULT FALSE,
+            difficult_access BOOLEAN DEFAULT FALSE,
+            slope_present BOOLEAN DEFAULT FALSE,
+
+            customer_notes TEXT,
+            missing_answers JSONB,
+            compliance_report JSONB,
+            estimate_result JSONB,
+
+            estimated_total DOUBLE PRECISION,
+            low_range DOUBLE PRECISION,
+            high_range DOUBLE PRECISION,
+            confidence_score DOUBLE PRECISION,
+            status TEXT,
+
+            customer_proposal TEXT,
+            internal_notes TEXT,
+
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """

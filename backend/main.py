@@ -1,5 +1,7 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from compliance.agent import check_compliance
+from compliance.schemas import FenceSpec, ComplianceReport
 
 from backend.address_lookup import (
     autocomplete_address,
@@ -54,6 +56,10 @@ def address_place(place_id: str = Query(..., min_length=3)):
     return {
         "place": get_place_details(place_id),
     }
+
+@app.post("/compliance/check", response_model=ComplianceReport)
+def compliance_check(spec: FenceSpec):
+    return check_compliance(spec)
 
 @app.post("/estimate", response_model=EstimateResult)
 def create_estimate(request: EstimateRequest):

@@ -1,0 +1,52 @@
+{
+  "jurisdiction": "Blacksburg, VA",
+  "jurisdiction_id": "va_blacksburg",
+  "source_url": "https://library.municode.com/va/blacksburg/codes/code_of_ordinances?nodeId=CO_APXAORNO1137BLZOOR_ARTVDEST_DIV7MIST_S5730FEWA",
+  "rule_count": 3,
+  "flags": [
+    "UNGROUNDED quote: fence-height-front-yard"
+  ],
+  "rules": [
+    {
+      "rule_id": "fence-height-front-yard",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in the front yard cannot exceed four feet in height.",
+      "verbatim_text": "Fences between a street and front building line shall not be more than four (4) feet in height.",
+      "verdict_logic": "WHEN (height_ft > 4) THEN fail",
+      "confidence": 0.4,
+      "source_url": "https://library.municode.com/va/blacksburg/codes/code_of_ordinances?nodeId=CO_APXAORNO1137BLZOOR_ARTVDEST_DIV7MIST_S5730FEWA",
+      "grounded": false
+    },
+    {
+      "rule_id": "fence-height-behind-front-line",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "back",
+      "rule_summary": "Fences located behind the front building line can be up to eight feet tall.",
+      "verbatim_text": "Fences located behind the front building line shall not exceed eight (8) feet in height.",
+      "verdict_logic": "WHEN (height_ft > 8) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/blacksburg/codes/code_of_ordinances?nodeId=CO_APXAORNO1137BLZOOR_ARTVDEST_DIV7MIST_S5730FEWA",
+      "grounded": true
+    },
+    {
+      "rule_id": "fence-location-sight-triangle",
+      "schema_fields": [
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "Fences must not obstruct views at street intersections.",
+      "verbatim_text": "Fences and walls shall not obstruct views at street intersections, and shall not be located in the sight triangle.",
+      "verdict_logic": "WHEN (location == sight_triangle) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/blacksburg/codes/code_of_ordinances?nodeId=CO_APXAORNO1137BLZOOR_ARTVDEST_DIV7MIST_S5730FEWA",
+      "grounded": true
+    }
+  ]
+}

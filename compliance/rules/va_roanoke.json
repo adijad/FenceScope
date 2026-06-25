@@ -1,0 +1,81 @@
+{
+  "jurisdiction": "Roanoke, VA",
+  "jurisdiction_id": "va_roanoke",
+  "source_url": "https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR",
+  "rule_count": 5,
+  "flags": [
+    "UNGROUNDED quote: maximum-height-fence-wall-single-frontage"
+  ],
+  "rules": [
+    {
+      "rule_id": "maximum-height-sight-triangle",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "Fences in a sight distance triangle cannot exceed 36 inches in height.",
+      "verbatim_text": "No fence or wall that exceeds a height of 36 inches from graded ground level shall be permitted within a sight distance triangle.",
+      "verdict_logic": "WHEN (height_ft > 36) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-height-fence-wall-single-frontage",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences on a lot with one frontage cannot exceed 48 inches in height.",
+      "verbatim_text": "The maximum height for fences and walls shall be based on the following schedule: On a lot with only one (1) lot frontage: between the building line and the lot frontage; or... 48 inches",
+      "verdict_logic": "WHEN (height_ft > 48) THEN fail",
+      "confidence": 0.4,
+      "source_url": "https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR",
+      "grounded": false
+    },
+    {
+      "rule_id": "maximum-height-fence-wall-multiple-frontage-principal",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences on a lot with multiple frontages cannot exceed 6 feet in height if not facing the principal entrance.",
+      "verbatim_text": "On a lot with more than one (1) lot frontage: between any building line on which the principal entrance to the building is not situated and the lot frontage which that building line faces 6 feet",
+      "verdict_logic": "WHEN (height_ft > 6) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-height-fence-wall-side-rear",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences in required side or rear yards cannot exceed 6 feet in height.",
+      "verbatim_text": "Any required side or rear yard 6 feet",
+      "verdict_logic": "WHEN (height_ft > 6) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-height-fence-wall-districts",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "Fences in certain districts can be up to 8 or 10 feet high depending on the district.",
+      "verbatim_text": "D, ROS, CN, CG, CLS, INPUD, UF, UC Any required yard 8 feet",
+      "verdict_logic": "WHEN (height_ft > 8) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR",
+      "grounded": true
+    }
+  ]
+}

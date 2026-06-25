@@ -10,6 +10,7 @@ FenceType = Literal[
     "split_rail",
 ]
 
+yard_location: Literal["front", "side", "back"] = "back"
 
 EstimateStatus = Literal[
     "ready_to_send",
@@ -27,6 +28,8 @@ class EstimateRequest(BaseModel):
     address: str
     property_lat: Optional[float] = None
     property_lng: Optional[float] = None
+
+    yard_location: Literal["front", "side", "back"] = "back"
 
     fence_type: FenceType
     height_ft: int = 6

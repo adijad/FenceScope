@@ -1,0 +1,135 @@
+{
+  "jurisdiction": "San Jose, CA",
+  "jurisdiction_id": "ca_san_jose",
+  "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+  "rule_count": 9,
+  "flags": [],
+  "rules": [
+    {
+      "rule_id": "interior-lot-front-setback",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in the front setback area of interior lots cannot exceed three feet in height.",
+      "verbatim_text": "Maximum three feet in height",
+      "verdict_logic": "WHEN (height_ft > 3) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "interior-lot-rear-setback",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "back",
+      "rule_summary": "Fences in the rear setback area of interior lots cannot exceed seven feet in height.",
+      "verbatim_text": "Maximum seven feet in height",
+      "verdict_logic": "WHEN (height_ft > 7) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "interior-lot-side-setback",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences in the side setback area of interior lots cannot exceed seven feet in height.",
+      "verbatim_text": "Maximum seven feet in height",
+      "verdict_logic": "WHEN (height_ft > 7) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-front-setback",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in the front setback area of corner lots cannot exceed three feet in height.",
+      "verbatim_text": "Maximum three feet in height",
+      "verdict_logic": "WHEN (height_ft > 3) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-rear-setback",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "back",
+      "rule_summary": "Fences in the rear setback area of corner lots cannot exceed seven feet in height.",
+      "verbatim_text": "Maximum seven feet in height",
+      "verdict_logic": "WHEN (height_ft > 7) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-side-setback-key-lot",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences adjacent to the side setback area of a key lot or corner lot cannot exceed three feet in height for a distance of twelve and one-half feet.",
+      "verbatim_text": "Maximum three feet in height for a distance of twelve and one-half feet",
+      "verdict_logic": "WHEN (height_ft > 3) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-side-setback-street",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences adjacent to a street on corner lots cannot exceed three feet in height within five feet of the property line.",
+      "verbatim_text": "Maximum three feet in height within five feet of property line",
+      "verdict_logic": "WHEN (height_ft > 3) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-side-setback-street-7ft",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences adjacent to a street on corner lots can be seven feet high at least five feet from the property line.",
+      "verbatim_text": "Maximum seven feet in height at least five feet from property line",
+      "verdict_logic": "WHEN (height_ft > 7) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-intersections",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "Fences within the corner triangle at intersections cannot exceed three feet in height.",
+      "verbatim_text": "Maximum three feet in height within the corner triangle",
+      "verdict_logic": "WHEN (height_ft > 3) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE",
+      "grounded": true
+    }
+  ]
+}

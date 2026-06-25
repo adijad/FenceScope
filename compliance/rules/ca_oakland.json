@@ -1,0 +1,66 @@
+{
+  "jurisdiction": "Oakland, CA",
+  "jurisdiction_id": "ca_oakland",
+  "source_url": "https://library.municode.com/ca/oakland/codes/planning_code?nodeId=TIT17PL_CH17.108GEHEYACORE_17.108.140FEDEHEBASIFRWA",
+  "rule_count": 4,
+  "flags": [],
+  "rules": [
+    {
+      "rule_id": "maximum-height-rear-yard",
+      "schema_fields": [
+        "height_ft",
+        "location",
+        "pct_open"
+      ],
+      "location": "back",
+      "rule_summary": "No more than 50% of the rear yard can be covered by facilities extending more than 6 feet high.",
+      "verbatim_text": "in no case shall more than fifty percent (50%) of the horizontal area of any required minimum rear yard be covered by any facilities, ... which extend more than six (6) feet above the level at which the rear yard is required.",
+      "verdict_logic": "WHEN (pct_open < 50) AND (height_ft > 6) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/oakland/codes/planning_code?nodeId=TIT17PL_CH17.108GEHEYACORE_17.108.140FEDEHEBASIFRWA",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-height-front-yard",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Structures in the front yard must not exceed 12 feet in height.",
+      "verbatim_text": "if such structures do not exceed twelve (12) feet in height above the finished grade of the required yard",
+      "verdict_logic": "WHEN height_ft > 12 THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/oakland/codes/planning_code?nodeId=TIT17PL_CH17.108GEHEYACORE_17.108.140FEDEHEBASIFRWA",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-height-side-yard-corner-lot",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "street_side",
+      "rule_summary": "Structures in the side yard of a corner lot must not exceed 12 feet in height.",
+      "verbatim_text": "if such structures do not exceed twelve (12) feet in height above the finished grade of the required yard",
+      "verdict_logic": "WHEN height_ft > 12 THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/oakland/codes/planning_code?nodeId=TIT17PL_CH17.108GEHEYACORE_17.108.140FEDEHEBASIFRWA",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-height-side-yard-interior",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Structures in the interior side yard must not exceed 12 feet in height.",
+      "verbatim_text": "if such structures do not exceed twelve (12) feet in height above the finished grade of the required yard",
+      "verdict_logic": "WHEN height_ft > 12 THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/oakland/codes/planning_code?nodeId=TIT17PL_CH17.108GEHEYACORE_17.108.140FEDEHEBASIFRWA",
+      "grounded": true
+    }
+  ]
+}

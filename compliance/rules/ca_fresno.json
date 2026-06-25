@@ -1,0 +1,94 @@
+{
+  "jurisdiction": "Fresno, CA",
+  "jurisdiction_id": "ca_fresno",
+  "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+  "rule_count": 6,
+  "flags": [],
+  "rules": [
+    {
+      "rule_id": "front-yard-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location",
+        "pct_open"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in the front yard must not exceed three feet in height.",
+      "verbatim_text": "All Other Materials. The fence may be placed within any required front yard setback if the fence does not exceed three feet in height.",
+      "verdict_logic": "WHEN (height_ft <= 3 AND location = 'front') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+      "grounded": true
+    },
+    {
+      "rule_id": "pinedale-neighborhood-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in the Pinedale Neighborhood Plan may be up to four feet in height.",
+      "verbatim_text": "Exception. Fences on parcels within the Pinedale Neighborhood Plan may be up to four feet in height, regardless of material.",
+      "verdict_logic": "WHEN (height_ft <= 4 AND location = 'front') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+      "grounded": true
+    },
+    {
+      "rule_id": "street-side-yard-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "street_side",
+      "rule_summary": "Fences in street-side yards may be up to six feet in height.",
+      "verbatim_text": "Fencing up to six feet in height may be placed within any street-side yard.",
+      "verdict_logic": "WHEN (height_ft <= 6 AND location = 'street_side') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+      "grounded": true
+    },
+    {
+      "rule_id": "other-yards-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "Fences in other yards may be up to six feet in height.",
+      "verbatim_text": "Fences up to six feet in height may be installed on property lines.",
+      "verdict_logic": "WHEN (height_ft <= 6 AND location = 'any') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+      "grounded": true
+    },
+    {
+      "rule_id": "maximum-fence-height-all-other-uses",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "The maximum height for fences outside of required front and street-side yards is seven feet.",
+      "verbatim_text": "Outside of the required front yard and street-side yards, the maximum height for fences is seven feet.",
+      "verdict_logic": "WHEN (height_ft <= 7 AND location = 'any') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+      "grounded": true
+    },
+    {
+      "rule_id": "front-yard-fence-transparency",
+      "schema_fields": [
+        "pct_open",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in the front yard must be open a minimum of 80 percent.",
+      "verbatim_text": "Fences must be open a minimum of 80 percent (e.g., no more than 20 percent opaque) to allow for the passage of light and air.",
+      "verdict_logic": "WHEN (pct_open >= 80 AND location = 'front') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE",
+      "grounded": true
+    }
+  ]
+}

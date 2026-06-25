@@ -1,0 +1,66 @@
+{
+  "jurisdiction": "Lynchburg, VA",
+  "jurisdiction_id": "va_lynchburg",
+  "source_url": "https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST",
+  "rule_count": 4,
+  "flags": [],
+  "rules": [
+    {
+      "rule_id": "fence-height-front-yard",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in front yards must not exceed four feet in height.",
+      "verbatim_text": "Each fence and/or wall does not exceed four feet in height in a front yard.",
+      "verdict_logic": "WHEN (height_ft <= 4 AND location = 'front') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST",
+      "grounded": true
+    },
+    {
+      "rule_id": "fence-height-side-rear-yard",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences in side and rear yards must not exceed eight feet in height.",
+      "verbatim_text": "Each fence and/or wall shall not exceed eight feet in height in side and rear yards.",
+      "verdict_logic": "WHEN (height_ft <= 8 AND location IN ('side', 'back')) THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST",
+      "grounded": true
+    },
+    {
+      "rule_id": "fence-height-exterior-side-setback",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "street_side",
+      "rule_summary": "Fences in required exterior side setbacks must not exceed four feet in height.",
+      "verbatim_text": "Fences and/or walls in required exterior side setbacks shall not exceed four feet in height.",
+      "verdict_logic": "WHEN (height_ft <= 4 AND location = 'street_side') THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST",
+      "grounded": true
+    },
+    {
+      "rule_id": "fence-height-corner-lot",
+      "schema_fields": [
+        "height_ft",
+        "location",
+        "corner_lot"
+      ],
+      "location": "street_side",
+      "rule_summary": "On a corner lot, fences in the required exterior side or rear setback abutting a street must not exceed four feet in height.",
+      "verbatim_text": "On a corner lot, no fence and/or wall shall exceed four feet in height in the required exterior side or rear setback abutting a street.",
+      "verdict_logic": "WHEN (height_ft <= 4 AND location = 'street_side' AND corner_lot = true) THEN pass",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST",
+      "grounded": true
+    }
+  ]
+}

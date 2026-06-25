@@ -1,0 +1,79 @@
+{
+  "jurisdiction": "Harrisonburg, VA",
+  "jurisdiction_id": "va_harrisonburg",
+  "source_url": "https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE",
+  "rule_count": 5,
+  "flags": [],
+  "rules": [
+    {
+      "rule_id": "front-yard-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "front",
+      "rule_summary": "Fences in front yards cannot exceed six feet in height.",
+      "verbatim_text": "No walls or fences within front yards shall exceed a height of six (6) feet as measured from grade at the front property line.",
+      "verdict_logic": "WHEN (height_ft > 6) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE",
+      "grounded": true
+    },
+    {
+      "rule_id": "side-rear-yard-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences in side and rear yards cannot exceed six feet in average height.",
+      "verbatim_text": "No walls or fences or similar items other than landscaping within side and rear yards shall exceed an average height of six (6) feet.",
+      "verdict_logic": "WHEN (height_ft > 6) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE",
+      "grounded": true
+    },
+    {
+      "rule_id": "attached-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location"
+      ],
+      "location": "side",
+      "rule_summary": "Fences attached to a principal building in side and rear yards can be up to eight feet high.",
+      "verbatim_text": "except that such items, when attached to a principal building, may not exceed eight (8) feet in height.",
+      "verdict_logic": "WHEN (height_ft > 8) THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE",
+      "grounded": true
+    },
+    {
+      "rule_id": "corner-lot-fence-height",
+      "schema_fields": [
+        "height_ft",
+        "location",
+        "corner_lot"
+      ],
+      "location": "any",
+      "rule_summary": "Fences on corner lots that exceed 3.5 feet must be set back 20 feet from intersections.",
+      "verbatim_text": "walls and fences, hedgerows and other dense landscaping and other items which occur on corner lots, which exceed three and one-half (3\u00bd) feet in height, and present an obstruction to vision, shall be reduced in height or relocated at least twenty (20) feet from the intersection of right-of-way lines.",
+      "verdict_logic": "WHEN (height_ft > 3.5) AND (corner_lot = true) THEN needs_review",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE",
+      "grounded": true
+    },
+    {
+      "rule_id": "non-electrified-fence",
+      "schema_fields": [
+        "location"
+      ],
+      "location": "any",
+      "rule_summary": "Fences adjoining property lines in residential districts cannot be electrified or barbed.",
+      "verbatim_text": "walls and fences which adjoin property lines shall not be electrified, barbed or otherwise secured in a manner inappropriate or dangerous to the neighborhood.",
+      "verdict_logic": "WHEN (material = 'electrified' OR material = 'barbed') THEN fail",
+      "confidence": 1.0,
+      "source_url": "https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE",
+      "grounded": true
+    }
+  ]
+}

@@ -242,6 +242,9 @@ def reset_workflow_state():
     st.session_state.workflow_error = None
     st.session_state.current_question_index = 0
 
+    st.session_state.email_sent = False
+    st.session_state.email_result = None
+
 
 def reset_guided_review_state():
     st.session_state.compliance_report = None
@@ -270,6 +273,74 @@ def add_workflow_log(message: str):
 
 
 # ---------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------
+
+def format_currency(value):
+    if value is None:
+        return "N/A"
+
+    try:
+        return f"${float(value):,.2f}"
+    except Exception:
+        return "N/A"
+
+
+def fence_type_label(fence_type):
+    if not fence_type:
+        return "N/A"
+
+    return str(fence_type).replace("_", " ").title()
+
+
+def yard_location_label(location):
+    labels = {
+        "back": "Back yard",
+        "side": "Side yard",
+        "front": "Front yard",
+    }
+
+    return labels.get(location, str(location).title())
+
+
+def status_label(status):
+    if not status:
+        return "Unknown"
+
+    return str(status).replace("_", " ").title()
+
+
+def ensure_dict(value):
+    if isinstance(value, dict):
+        return value
+
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            return {}
+
+    return {}
+
+
+def ensure_list(value):
+    if isinstance(value, list):
+        return value
+
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            return []
+
+    return []
+
+
+# ---------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------
 
@@ -281,11 +352,13 @@ def render_sidebar():
             1. Capture customer details  
             2. Select property address  
             3. Draw or enter fence measurement  
-            4. Start guided estimate review  
-            5. Run compliance pre-check  
-            6. Answer missing questions  
-            7. Generate estimate  
-            8. Save estimate for admin review
+            4. Break fence into yard sections  
+            5. Start guided estimate review  
+            6. Run multi-section compliance pre-check  
+            7. Answer missing questions  
+            8. Generate estimate  
+            9. Save estimate for admin review  
+            10. Email customer-safe summary
             """
         )
 
@@ -296,13 +369,15 @@ def render_sidebar():
             """
             **Address autocomplete:** Finds property location  
             **Map:** Measures linear footage  
-            **Compliance agent:** Checks local fence code first  
+            **Yard sections:** Captures front, side, and back-yard context  
+            **Compliance agent:** Checks local fence code before pricing  
             **Question agent:** Finds missing customer details before estimate  
             **Pricing engine:** Calculates price deterministically  
-            **Risk agent:** Reviews risks and missing info  
+            **Risk agent:** Routes jobs for estimator review  
             **Proposal agent:** Drafts internal proposal copy  
             **Postgres:** Stores full estimate history  
-            **Human review:** Controls final action
+            **Email action:** Sends customer-approved estimate summary  
+            **Human review:** Controls final quote
             """
         )
 
@@ -321,6 +396,8 @@ def render_compliance_report(report):
     if not report:
         st.info("No compliance report available.")
         return
+
+    report = ensure_dict(report)
 
     verdict = report.get("overall", "NEEDS_REVIEW")
     jurisdiction = report.get("jurisdiction") or "jurisdiction not covered"
@@ -354,13 +431,20 @@ def render_compliance_report(report):
             if finding.get("source_url"):
                 st.markdown(f"[View ordinance source]({finding['source_url']})")
 
+    if report.get("review_reasons"):
+        with st.expander("Review reasons"):
+            for reason in report["review_reasons"]:
+                st.write(f"- {reason}")
+
     if report.get("disclaimer"):
         st.caption(report["disclaimer"])
 
 
 def render_failed_compliance_guidance(report):
+    report = ensure_dict(report)
+
     failed_rule_ids = [
-        finding["rule_id"]
+        finding.get("rule_id", "")
         for finding in report.get("findings", [])
         if finding.get("status") == "fail"
     ]
@@ -369,23 +453,25 @@ def render_failed_compliance_guidance(report):
         "This request cannot be estimated as entered. Please adjust the highlighted fields before generating an estimate."
     )
 
-    if "fence-height-front-yard" in failed_rule_ids:
+    if any("fence-height-front-yard" in rule_id for rule_id in failed_rule_ids):
         st.warning(
-            "Field to fix: Fence height. Front-yard fences in this jurisdiction cannot exceed four feet."
+            "Field to fix: Front-yard fence height. Front-yard fences often have stricter height limits."
         )
 
-    if "fence-location-sight-triangle" in failed_rule_ids:
+    if any("sight" in rule_id or "visibility" in rule_id for rule_id in failed_rule_ids):
         st.warning(
-            "Field to review: Yard location. Front-yard or street-facing fences may affect visibility and sight-triangle rules."
+            "Field to review: Front-yard or street-facing fence placement may affect visibility or sight-triangle rules."
         )
 
     if not failed_rule_ids:
         st.warning(
-            "The compliance checker found a blocking issue. Review the selected fence height, yard location, material, and property address."
+            "The compliance checker found a blocking issue. Review fence height, yard sections, material, and property address."
         )
 
 
 def render_risk_flags(risk_flags):
+    risk_flags = risk_flags or []
+
     if not risk_flags:
         st.write("No major risks flagged.")
         return
@@ -412,7 +498,24 @@ def render_line_items(line_items):
         return
 
     line_items_df = pd.DataFrame(line_items)
-    st.dataframe(line_items_df, use_container_width=True)
+
+    rename_map = {
+        "label": "Item",
+        "quantity": "Quantity",
+        "unit": "Unit",
+        "unit_cost": "Unit Cost",
+        "total": "Total",
+    }
+
+    line_items_df = line_items_df.rename(columns=rename_map)
+
+    if "Unit Cost" in line_items_df.columns:
+        line_items_df["Unit Cost"] = line_items_df["Unit Cost"].apply(format_currency)
+
+    if "Total" in line_items_df.columns:
+        line_items_df["Total"] = line_items_df["Total"].apply(format_currency)
+
+    st.dataframe(line_items_df, use_container_width=True, hide_index=True)
 
 
 def render_customer_answers(missing_answers):
@@ -430,6 +533,38 @@ def render_customer_answers(missing_answers):
         st.markdown(f"**Q:** {question}")
         st.markdown(f"**A:** {answer}")
         st.divider()
+
+
+def render_yard_sections_table(yard_sections):
+    yard_sections = ensure_list(yard_sections)
+
+    if not yard_sections:
+        st.info("No yard section breakdown was provided.")
+        return
+
+    rows = []
+
+    for section in yard_sections:
+        if not section.get("included", True):
+            continue
+
+        rows.append(
+            {
+                "Yard Section": yard_location_label(section.get("location")),
+                "Height": f"{section.get('height_ft', 'N/A')} ft",
+                "Approx. Length": (
+                    f"{float(section.get('linear_feet')):,.1f} ft"
+                    if section.get("linear_feet") is not None
+                    else "N/A"
+                ),
+            }
+        )
+
+    if not rows:
+        st.info("No included yard sections found.")
+        return
+
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def send_customer_summary_email(result, customer_email, customer_name, compliance_report):
@@ -474,6 +609,7 @@ def send_customer_summary_email(result, customer_email, customer_name, complianc
     st.session_state.email_result = data
 
     st.success(f"Estimate summary sent to {customer_email}.")
+
 
 # ---------------------------------------------------------
 # Typed question rendering
@@ -833,6 +969,9 @@ def validate_required_inputs(payload):
     if not payload.get("linear_feet") or payload.get("linear_feet") <= 0:
         missing.append("Fence length")
 
+    if not payload.get("yard_sections"):
+        missing.append("At least one yard section")
+
     return missing
 
 
@@ -1039,8 +1178,8 @@ def render_guided_estimate_workflow(payload, customer_notes):
         if stage == "idle":
             st.markdown("### Ready to review your fence project?")
             st.write(
-                "FenceScope will check local fence-code rules, collect any missing details, "
-                "generate the estimate, and save it for admin review."
+                "FenceScope will check local fence-code rules across the selected yard sections, "
+                "collect any missing details, generate the estimate, and save it for admin review."
             )
 
             if st.button("Start Estimate Review", type="primary"):
@@ -1081,7 +1220,11 @@ def render_guided_estimate_workflow(payload, customer_notes):
 
         if stage == "estimate_complete":
             st.success("Estimate ready.")
-            render_estimate_summary(st.session_state.estimate_result)
+            render_estimate_summary(
+                result=st.session_state.estimate_result,
+                payload=payload,
+                compliance_report=st.session_state.compliance_report,
+            )
 
             st.divider()
 
@@ -1114,7 +1257,7 @@ def render_guided_estimate_workflow(payload, customer_notes):
 
             with restart_col2:
                 st.caption(
-                    "This estimate has been saved for admin review. The customer-facing proposal remains internal until reviewed."
+                    "This estimate has been saved for admin review. Final quote approval remains with the estimating team."
                 )
 
             return
@@ -1124,38 +1267,38 @@ def render_guided_estimate_workflow(payload, customer_notes):
 
 
 # ---------------------------------------------------------
-# Estimate summary
+# Customer estimate summary
 # ---------------------------------------------------------
 
-def render_estimate_summary(result):
+def render_estimate_summary(result, payload=None, compliance_report=None):
     if not result:
         st.info("No estimate result available.")
         return
 
+    payload = payload or {}
+    compliance_report = ensure_dict(compliance_report)
+
     st.subheader("Estimate Summary")
 
-    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
 
     with metric_col1:
-        st.metric("Estimated Total", f"${result['estimated_total']:,.2f}")
+        st.metric("Preliminary Estimate", format_currency(result.get("estimated_total")))
 
     with metric_col2:
-        st.metric("Low Range", f"${result['low_range']:,.2f}")
+        st.metric("Low Range", format_currency(result.get("low_range")))
 
     with metric_col3:
-        st.metric("High Range", f"${result['high_range']:,.2f}")
+        st.metric("High Range", format_currency(result.get("high_range")))
 
-    with metric_col4:
-        st.metric("Confidence", result["confidence_score"])
+    status = result.get("status")
 
-    status = result["status"].replace("_", " ").title()
-
-    if result["status"] == "ready_to_send":
-        st.success(f"Status: {status}")
-    elif result["status"] in ["needs_customer_info", "needs_estimator_review"]:
-        st.warning(f"Status: {status}")
+    if status == "ready_to_send":
+        st.success(f"Project Status: {status_label(status)}")
+    elif status in ["needs_customer_info", "needs_estimator_review"]:
+        st.warning(f"Project Status: {status_label(status)}")
     else:
-        st.error(f"Status: {status}")
+        st.error(f"Project Status: {status_label(status)}")
 
     if result.get("estimate_id"):
         st.caption(f"Saved estimate ID: {result['estimate_id']}")
@@ -1166,30 +1309,188 @@ def render_estimate_summary(result):
 
     st.divider()
 
-    left_col, right_col = st.columns([1, 1])
+    st.subheader("Project Snapshot")
 
-    with left_col:
-        st.subheader("Line Items")
-        render_line_items(result.get("line_items", []))
+    snap_col1, snap_col2, snap_col3 = st.columns(3)
 
-        st.subheader("Risk Flags")
-        render_risk_flags(result.get("risk_flags", []))
+    with snap_col1:
+        st.write(f"**Fence type:** {fence_type_label(payload.get('fence_type'))}")
+        st.write(f"**Measured length:** {float(payload.get('linear_feet', result.get('total_feet', 0))):,.1f} ft")
 
-    with right_col:
-        st.subheader("Remaining Missing Questions")
+    with snap_col2:
+        st.write(f"**Default height:** {payload.get('height_ft', 'N/A')} ft")
+        st.write(f"**Walk gates:** {payload.get('gate_count', 0)}")
+        st.write(f"**Double gates:** {payload.get('double_gate_count', 0)}")
 
-        if result.get("missing_questions"):
-            for question in result["missing_questions"]:
-                st.write(f"- {question}")
+    with snap_col3:
+        st.write(f"**Old fence removal:** {'Yes' if payload.get('old_fence_removal') else 'No'}")
+        st.write(f"**Difficult access:** {'Yes' if payload.get('difficult_access') else 'No'}")
+        st.write(f"**Slope present:** {'Yes' if payload.get('slope_present') else 'No'}")
+
+    st.subheader("Yard Sections Checked")
+    render_yard_sections_table(payload.get("yard_sections", []))
+
+    if compliance_report:
+        verdict = compliance_report.get("overall", "NEEDS_REVIEW")
+        jurisdiction = compliance_report.get("jurisdiction") or "local jurisdiction"
+
+        if verdict == "PASS":
+            st.success(f"Compliance pre-check: {verdict} - {jurisdiction}")
+        elif verdict == "FAIL":
+            st.error(f"Compliance pre-check: {verdict} - {jurisdiction}")
         else:
-            st.success("No remaining missing questions.")
+            st.warning(f"Compliance pre-check: {verdict} - {jurisdiction}")
+
+        if compliance_report.get("summary"):
+            st.caption(compliance_report["summary"])
 
     st.divider()
 
-    st.subheader("Customer Next Step")
-    st.write(
-        "A representative will contact the customer to confirm any final details, review compliance requirements, and finalize the quote."
+    st.subheader("Price Breakdown")
+    render_line_items(result.get("line_items", []))
+
+    st.caption(
+        "The estimate uses the measured total fence length for pricing. The yard-section breakdown is used to improve compliance checking."
     )
+
+    st.divider()
+
+    st.subheader("What Happens Next")
+    st.write(
+        """
+        A representative will review the project details, confirm final site conditions, 
+        check any remaining installation details, and contact you before this becomes a final quote.
+        """
+    )
+
+    remaining_questions = result.get("missing_questions", [])
+
+    if remaining_questions:
+        st.warning(
+            "There are a few remaining details for the estimator to confirm. They are saved internally for review."
+        )
+    else:
+        st.success("No remaining customer details are currently required.")
+
+
+# ---------------------------------------------------------
+# Yard section UI
+# ---------------------------------------------------------
+
+def render_yard_sections(default_height_ft, total_linear_feet):
+    st.subheader("Yard Section Breakdown")
+
+    st.caption(
+        "Add the parts of the fence that pass through each yard area. "
+        "Front, side, and back yards can have different local fence-height rules."
+    )
+
+    yard_sections = []
+
+    with st.container(border=True):
+        section_configs = [
+            ("back", "Back yard", True),
+            ("side", "Side yard", False),
+            ("front", "Front yard", False),
+        ]
+
+        for location_key, location_label, default_included in section_configs:
+            st.markdown(f"**{location_label} section**")
+
+            included = st.checkbox(
+                f"Include {location_label.lower()} section",
+                value=default_included,
+                key=f"{location_key}_section_included",
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                section_height = st.number_input(
+                    f"{location_label} height",
+                    min_value=3,
+                    max_value=10,
+                    value=4 if location_key == "front" else int(default_height_ft),
+                    step=1,
+                    key=f"{location_key}_section_height",
+                    disabled=not included,
+                )
+
+            with col2:
+                default_length = (
+                    float(total_linear_feet)
+                    if location_key == "back"
+                    else 0.0
+                )
+
+                section_length = st.number_input(
+                    f"{location_label} approximate length",
+                    min_value=0.0,
+                    value=default_length,
+                    step=1.0,
+                    key=f"{location_key}_section_length",
+                    disabled=not included,
+                )
+
+            if included:
+                yard_sections.append(
+                    {
+                        "location": location_key,
+                        "included": True,
+                        "height_ft": int(section_height),
+                        "linear_feet": float(section_length),
+                    }
+                )
+
+            st.divider()
+
+    if not yard_sections:
+        st.warning("Please include at least one yard section.")
+
+        return [
+            {
+                "location": "back",
+                "included": True,
+                "height_ft": int(default_height_ft),
+                "linear_feet": float(total_linear_feet),
+            }
+        ]
+
+    entered_section_feet = sum(
+        float(section.get("linear_feet") or 0)
+        for section in yard_sections
+    )
+
+    if entered_section_feet > 0:
+        difference = abs(entered_section_feet - float(total_linear_feet))
+
+        if difference > 10:
+            st.info(
+                "Section lengths do not exactly match the measured total. "
+                "That is okay for this demo. Compliance uses section height and location; "
+                "pricing still uses the measured total fence length."
+            )
+
+    return yard_sections
+
+
+def derive_primary_yard_location(yard_sections):
+    """
+    Backend compatibility helper.
+
+    The customer-facing UI uses yard_sections as the source of truth.
+    The backend still accepts yard_location, so we derive it from the first
+    included section in a stable order.
+    """
+    for preferred_location in ["back", "side", "front"]:
+        for section in yard_sections:
+            if (
+                section.get("included", True)
+                and section.get("location") == preferred_location
+            ):
+                return preferred_location
+
+    return "back"
 
 
 # ---------------------------------------------------------
@@ -1255,31 +1556,13 @@ def render_user_view():
             index=0,
         )
 
-        yard_location_label = st.selectbox(
-            "Yard location",
-            [
-                "Back yard",
-                "Side yard",
-                "Front yard",
-            ],
-            index=0,
-            help="Used by the compliance agent because front, side, and back yards often have different fence rules.",
-        )
-
-        yard_location_map = {
-            "Back yard": "back",
-            "Side yard": "side",
-            "Front yard": "front",
-        }
-
-        yard_location = yard_location_map[yard_location_label]
-
         height_ft = st.number_input(
-            "Fence height",
+            "Default fence height",
             min_value=3,
             max_value=10,
             value=6,
             step=1,
+            help="Used as the default height for yard sections below.",
         )
 
         manual_linear_feet = st.number_input(
@@ -1422,6 +1705,15 @@ def render_user_view():
 
     st.divider()
 
+    yard_sections = render_yard_sections(
+        default_height_ft=height_ft,
+        total_linear_feet=final_linear_feet,
+    )
+
+    yard_location = derive_primary_yard_location(yard_sections)
+
+    st.divider()
+
     payload = {
         "customer_name": customer_name,
         "customer_email": customer_email,
@@ -1433,6 +1725,7 @@ def render_user_view():
         "height_ft": height_ft,
         "linear_feet": final_linear_feet,
         "yard_location": yard_location,
+        "yard_sections": yard_sections,
         "gate_count": gate_count,
         "double_gate_count": double_gate_count,
         "old_fence_removal": old_fence_removal,
@@ -1457,8 +1750,6 @@ def render_user_view():
     render_guided_estimate_workflow(payload, customer_notes)
 
 
-
-
 # ---------------------------------------------------------
 # Admin view
 # ---------------------------------------------------------
@@ -1474,9 +1765,10 @@ def fetch_saved_estimates():
 
 
 def render_estimate_detail(estimate, key_prefix):
-    estimate_result = estimate.get("estimate_result") or {}
-    compliance_report = estimate.get("compliance_report") or {}
-    missing_answers = estimate.get("missing_answers") or {}
+    estimate_result = ensure_dict(estimate.get("estimate_result"))
+    compliance_report = ensure_dict(estimate.get("compliance_report"))
+    missing_answers = ensure_dict(estimate.get("missing_answers"))
+    yard_sections = ensure_list(estimate.get("yard_sections"))
 
     st.subheader(f"Estimate #{estimate.get('id')}")
 
@@ -1489,34 +1781,34 @@ def render_estimate_detail(estimate, key_prefix):
 
     with meta_col2:
         st.write(f"**Address:** {estimate.get('address', '')}")
-        st.write(f"**Fence type:** {estimate.get('fence_type', '')}")
-        st.write(f"**Yard location:** {estimate.get('yard_location', '')}")
+        st.write(f"**Fence type:** {fence_type_label(estimate.get('fence_type', ''))}")
+        st.write(f"**Derived primary yard:** {yard_location_label(estimate.get('yard_location', ''))}")
 
     with meta_col3:
-        st.write(f"**Height:** {estimate.get('height_ft', '')} ft")
+        st.write(f"**Default height:** {estimate.get('height_ft', '')} ft")
         st.write(f"**Linear feet:** {estimate.get('linear_feet', '')}")
         st.write(f"**Created:** {estimate.get('created_at', '')}")
 
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
     with metric_col1:
-        total = estimate.get("estimated_total")
-        st.metric("Estimated Total", f"${total:,.2f}" if total is not None else "N/A")
+        st.metric("Estimated Total", format_currency(estimate.get("estimated_total")))
 
     with metric_col2:
-        low = estimate.get("low_range")
-        st.metric("Low Range", f"${low:,.2f}" if low is not None else "N/A")
+        st.metric("Low Range", format_currency(estimate.get("low_range")))
 
     with metric_col3:
-        high = estimate.get("high_range")
-        st.metric("High Range", f"${high:,.2f}" if high is not None else "N/A")
+        st.metric("High Range", format_currency(estimate.get("high_range")))
 
     with metric_col4:
         st.metric("Confidence", estimate.get("confidence_score", "N/A"))
 
-    st.write(f"**Status:** {(estimate.get('status') or 'unknown').replace('_', ' ').title()}")
+    st.write(f"**Status:** {status_label(estimate.get('status'))}")
 
     st.divider()
+
+    st.subheader("Yard Sections")
+    render_yard_sections_table(yard_sections)
 
     st.subheader("Compliance Report")
     render_compliance_report(compliance_report)
@@ -1571,6 +1863,13 @@ def render_saved_estimate_history():
     summary_rows = []
 
     for estimate in estimates:
+        yard_sections = ensure_list(estimate.get("yard_sections"))
+        included_sections = [
+            section.get("location")
+            for section in yard_sections
+            if section.get("included", True)
+        ]
+
         summary_rows.append(
             {
                 "estimate_id": estimate.get("id"),
@@ -1578,7 +1877,8 @@ def render_saved_estimate_history():
                 "customer_name": estimate.get("customer_name"),
                 "address": estimate.get("address"),
                 "fence_type": estimate.get("fence_type"),
-                "yard_location": estimate.get("yard_location"),
+                "derived_primary_yard": estimate.get("yard_location"),
+                "sections_checked": ", ".join(included_sections) if included_sections else "",
                 "linear_feet": estimate.get("linear_feet"),
                 "estimated_total": estimate.get("estimated_total"),
                 "status": estimate.get("status"),
@@ -1636,18 +1936,18 @@ def render_latest_session_estimate():
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
     with metric_col1:
-        st.metric("Estimated Total", f"${result['estimated_total']:,.2f}")
+        st.metric("Estimated Total", format_currency(result.get("estimated_total")))
 
     with metric_col2:
-        st.metric("Low Range", f"${result['low_range']:,.2f}")
+        st.metric("Low Range", format_currency(result.get("low_range")))
 
     with metric_col3:
-        st.metric("High Range", f"${result['high_range']:,.2f}")
+        st.metric("High Range", format_currency(result.get("high_range")))
 
     with metric_col4:
-        st.metric("Confidence", result["confidence_score"])
+        st.metric("Confidence", result.get("confidence_score", "N/A"))
 
-    st.write(f"**Status:** {result['status'].replace('_', ' ').title()}")
+    st.write(f"**Status:** {status_label(result.get('status'))}")
 
     if result.get("estimate_id"):
         st.caption(f"Saved estimate ID: {result['estimate_id']}")

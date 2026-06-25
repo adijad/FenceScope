@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 
 
@@ -10,7 +10,7 @@ FenceType = Literal[
     "split_rail",
 ]
 
-yard_location: Literal["front", "side", "back"] = "back"
+YardLocation = Literal["front", "side", "back"]
 
 EstimateStatus = Literal[
     "ready_to_send",
@@ -18,6 +18,13 @@ EstimateStatus = Literal[
     "needs_estimator_review",
     "site_visit_required",
 ]
+
+
+class YardSection(BaseModel):
+    location: YardLocation
+    included: bool = True
+    height_ft: int = 6
+    linear_feet: Optional[float] = None
 
 
 class EstimateRequest(BaseModel):
@@ -29,7 +36,11 @@ class EstimateRequest(BaseModel):
     property_lat: Optional[float] = None
     property_lng: Optional[float] = None
 
-    yard_location: Literal["front", "side", "back"] = "back"
+    # Backward-compatible primary location.
+    yard_location: YardLocation = "back"
+
+    # Optional richer section breakdown.
+    yard_sections: Optional[List[YardSection]] = None
 
     fence_type: FenceType
     height_ft: int = 6
@@ -58,10 +69,12 @@ class RiskFlag(BaseModel):
     explanation: str
     recommended_action: str
 
+
 class MissingQuestionsResult(BaseModel):
     risk_flags: List[RiskFlag]
     missing_questions: List[str]
     confidence_score: float
+
 
 class EstimateResult(BaseModel):
     customer_name: str
@@ -92,4 +105,4 @@ class EstimateEmailRequest(BaseModel):
     confidence_score: float
     compliance_overall: Optional[str] = None
     compliance_jurisdiction: Optional[str] = None
-    remaining_questions: List[str] = []
+    remaining_questions: List[str] = Field(default_factory=list)

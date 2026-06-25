@@ -47,6 +47,7 @@ def init_db():
 
             fence_type TEXT NOT NULL,
             yard_location TEXT NOT NULL,
+            yard_sections JSONB,
             height_ft INTEGER NOT NULL,
             linear_feet DOUBLE PRECISION NOT NULL,
 
@@ -72,6 +73,13 @@ def init_db():
 
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        """
+    )
+
+    cur.execute(
+        """
+        ALTER TABLE estimates
+        ADD COLUMN IF NOT EXISTS yard_sections JSONB;
         """
     )
 

@@ -45,6 +45,7 @@ def create_estimate(
             property_lng,
             fence_type,
             yard_location,
+            yard_sections,
             height_ft,
             linear_feet,
             gate_count,
@@ -66,7 +67,7 @@ def create_estimate(
         )
         VALUES (
             %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         RETURNING *;
         """,
@@ -77,6 +78,7 @@ def create_estimate(
             request_data.get("property_lng"),
             request_data.get("fence_type"),
             request_data.get("yard_location"),
+            Json(request_data.get("yard_sections") or []),
             request_data.get("height_ft"),
             request_data.get("linear_feet"),
             request_data.get("gate_count"),
@@ -143,6 +145,7 @@ def get_all_estimates():
             e.address,
             e.fence_type,
             e.yard_location,
+            e.yard_sections,
             e.height_ft,
             e.linear_feet,
             e.estimated_total,

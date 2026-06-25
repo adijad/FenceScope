@@ -18,6 +18,7 @@ from backend.models import (
     EstimateResult,
     MissingQuestionsResult,
     EstimateEmailRequest,
+    YardSection,
 )
 from backend.email_service import send_estimate_summary_email
 from backend.risk_agent import analyze_risks
@@ -55,15 +56,134 @@ def startup_event():
     init_db()
 
 
-def estimate_request_to_fence_spec(request: EstimateRequest) -> FenceSpec:
+def section_label(location: str) -> str:
+    labels = {
+        "front": "Front yard",
+        "side": "Side yard",
+        "back": "Back yard",
+    }
+    return labels.get(location, location.title())
+
+
+def get_compliance_sections(request: EstimateRequest) -> list[YardSection]:
+    """
+    Returns the yard sections that should be checked for compliance.
+
+    If the user provided a section breakdown, use it.
+    Otherwise fall back to the old single yard_location + height_ft behavior.
+    """
+    if request.yard_sections:
+        included_sections = [
+            section
+            for section in request.yard_sections
+            if section.included
+        ]
+
+        if included_sections:
+            return included_sections
+
+    return [
+        YardSection(
+            location=request.yard_location,
+            included=True,
+            height_ft=request.height_ft,
+            linear_feet=request.linear_feet,
+        )
+    ]
+
+
+def yard_section_to_fence_spec(
+    request: EstimateRequest,
+    section: YardSection,
+) -> FenceSpec:
     material, pct_open = MATERIAL_MAP.get(request.fence_type, ("wood", 0))
 
     return FenceSpec(
-        height_ft=request.height_ft,
-        location=request.yard_location,
+        height_ft=section.height_ft or request.height_ft,
+        location=section.location,
         material=material,
         pct_open=pct_open,
         address=request.address,
+    )
+
+
+def run_compliance_for_estimate_request(request: EstimateRequest) -> ComplianceReport:
+    """
+    Runs compliance for one or more yard sections.
+
+    If multiple sections are present:
+    - Any FAIL makes the whole report FAIL.
+    - Otherwise any NEEDS_REVIEW makes the whole report NEEDS_REVIEW.
+    - Otherwise the whole report PASSes.
+    """
+    sections = get_compliance_sections(request)
+
+    section_reports = []
+
+    for section in sections:
+        spec = yard_section_to_fence_spec(request, section)
+        report = check_compliance(spec)
+        section_reports.append((section, report))
+
+    if len(section_reports) == 1:
+        return section_reports[0][1]
+
+    overall = "PASS"
+
+    if any(report.overall == "FAIL" for _, report in section_reports):
+        overall = "FAIL"
+    elif any(report.overall == "NEEDS_REVIEW" for _, report in section_reports):
+        overall = "NEEDS_REVIEW"
+
+    first_report = section_reports[0][1]
+
+    combined_findings = []
+    review_reasons = []
+
+    summary_parts = []
+
+    for section, report in section_reports:
+        label = section_label(section.location)
+        summary_parts.append(
+            f"{label}: {report.overall} at {section.height_ft} ft"
+        )
+
+        if report.overall != "PASS":
+            review_reasons.append(
+                f"{label} returned {report.overall} during compliance pre-check."
+            )
+
+        for finding in report.findings:
+            finding_data = finding.model_dump()
+
+            finding_data["rule_id"] = (
+                f"{section.location}-{finding_data.get('rule_id', 'rule')}"
+            )
+
+            finding_data["explanation"] = (
+                f"{label} section: {finding_data.get('explanation', '')}"
+            )
+
+            combined_findings.append(finding_data)
+
+    summary = (
+        f"Checked {len(section_reports)} yard section(s): "
+        + "; ".join(summary_parts)
+        + "."
+    )
+
+    return ComplianceReport(
+        matched=any(report.matched for _, report in section_reports),
+        jurisdiction=first_report.jurisdiction,
+        jurisdiction_id=first_report.jurisdiction_id,
+        overall=overall,
+        findings=combined_findings,
+        summary=summary,
+        needs_human_review=overall != "PASS"
+        or any(report.needs_human_review for _, report in section_reports),
+        review_reasons=review_reasons,
+        source_url=first_report.source_url,
+        disclaimer=first_report.disclaimer,
     )
 
 
@@ -131,8 +251,7 @@ def precheck_estimate_request(request: EstimateRequest):
 
     This endpoint is for the user-facing workflow step.
     """
-    spec = estimate_request_to_fence_spec(request)
-    return check_compliance(spec)
+    return run_compliance_for_estimate_request(request)
 
 
 @app.post("/estimate")
@@ -148,8 +267,7 @@ def create_full_estimate(request: EstimateRequest):
     5. Saves the full estimate package to Postgres.
     6. Returns the estimate result with customer_id and estimate_id.
     """
-    spec = estimate_request_to_fence_spec(request)
-    compliance_report = check_compliance(spec)
+    compliance_report = run_compliance_for_estimate_request(request)
 
     if compliance_report.overall == "FAIL":
         raise HTTPException(

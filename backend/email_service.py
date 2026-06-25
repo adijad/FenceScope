@@ -103,8 +103,10 @@ def send_email(to_email: str, subject: str, body: str) -> dict:
     message["To"] = to_email
     message.set_content(body)
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+        server.ehlo()
         server.starttls()
+        server.ehlo()
         server.login(SMTP_USERNAME, SMTP_PASSWORD)
         server.send_message(message)
 

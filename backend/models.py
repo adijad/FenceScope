@@ -21,13 +21,18 @@ EstimateStatus = Literal[
 
 
 AdminDecision = Literal[
-    "pending_review",
+    "under_review",
     "approved_to_send",
     "needs_customer_info",
     "needs_site_visit",
     "cannot_quote_as_entered",
 ]
 
+MaterialGrade = Literal["economy", "standard", "premium"]
+GateHardware = Literal["standard", "self_closing", "lockable"]
+SlopeSeverity = Literal["none", "slight", "moderate", "steep"]
+AccessLevel = Literal["easy", "limited", "difficult"]
+BrushClearing = Literal["none", "light", "moderate", "heavy"]
 
 class YardSection(BaseModel):
     location: YardLocation
@@ -60,6 +65,16 @@ class EstimateRequest(BaseModel):
     difficult_access: bool = False
     slope_present: bool = False
     customer_notes: Optional[str] = None
+
+    # Pricing v2 inputs.
+    material_grade: MaterialGrade = "standard"
+    gate_hardware: GateHardware = "standard"
+    removal_length_feet: Optional[float] = None
+    slope_severity: SlopeSeverity = "none"
+    access_level: AccessLevel = "easy"
+    brush_clearing: BrushClearing = "none"
+    stain_seal: bool = False
+    permit_admin: bool = False
 
     missing_answers: Optional[dict[str, str]] = None
 

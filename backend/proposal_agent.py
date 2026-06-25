@@ -130,11 +130,23 @@ def draft_proposal(
                 "fence_type": req.fence_type,
                 "height_ft": req.height_ft,
                 "linear_feet": req.linear_feet,
+                "yard_sections": [
+                    section.model_dump()
+                    for section in (req.yard_sections or [])
+                ],
                 "gate_count": req.gate_count,
                 "double_gate_count": req.double_gate_count,
                 "old_fence_removal": req.old_fence_removal,
                 "difficult_access": req.difficult_access,
                 "slope_present": req.slope_present,
+                "material_grade": req.material_grade,
+                "gate_hardware": req.gate_hardware,
+                "removal_length_feet": req.removal_length_feet,
+                "slope_severity": req.slope_severity,
+                "access_level": req.access_level,
+                "brush_clearing": req.brush_clearing,
+                "stain_seal": req.stain_seal,
+                "permit_admin": req.permit_admin,
             },
             "pricing": {
                 "estimated_total": estimated_total,

@@ -85,7 +85,7 @@ def init_db():
     cur.execute(
         """
         ALTER TABLE estimates
-        ADD COLUMN IF NOT EXISTS admin_decision TEXT DEFAULT 'pending_review',
+        ADD COLUMN IF NOT EXISTS admin_decision TEXT DEFAULT 'under_review',
         ADD COLUMN IF NOT EXISTS admin_decision_notes TEXT,
         ADD COLUMN IF NOT EXISTS admin_email_subject TEXT,
         ADD COLUMN IF NOT EXISTS admin_email_body TEXT,
@@ -94,6 +94,14 @@ def init_db():
         ADD COLUMN IF NOT EXISTS admin_updated_at TIMESTAMP;
         """
     )
+    cur.execute(
+        """
+        UPDATE estimates
+        SET admin_decision = 'under_review'
+        WHERE admin_decision IS NULL OR admin_decision = 'pending_review';
+        """
+    )
+
 
     conn.commit()
     cur.close()

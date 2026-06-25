@@ -1,4 +1,9 @@
-from fastapi import FastAPI, Query, HTTPException
+import hmac
+import os
+
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, Query, HTTPException, status
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -28,6 +33,10 @@ from backend.storage import create_customer, create_estimate, get_all_estimates
 from backend.workflow import run_estimate_workflow
 
 
+load_dotenv()
+security = HTTPBasic()
+
+
 app = FastAPI(
     title="FenceScope AI",
     description="AI-assisted estimate triage and proposal workflow for residential fencing companies.",
@@ -42,6 +51,39 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _admin_auth_error(detail: str = "Admin authentication required."):
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Basic"},
+    )
+
+
+def require_admin(credentials: HTTPBasicCredentials = Depends(security)) -> str:
+    """Protect estimator/admin operations with lightweight HTTP Basic auth.
+
+    This is intentionally simple for the 24-hour demo. It uses ADMIN_USERNAME
+    and ADMIN_PASSWORD from .env. In production, replace this with real user
+    accounts, hashed passwords, sessions or JWTs, roles, and audit logs.
+    """
+    expected_username = os.getenv("ADMIN_USERNAME")
+    expected_password = os.getenv("ADMIN_PASSWORD")
+
+    if not expected_username or not expected_password:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Admin authentication is not configured. Set ADMIN_USERNAME and ADMIN_PASSWORD.",
+        )
+
+    username_ok = hmac.compare_digest(credentials.username or "", expected_username)
+    password_ok = hmac.compare_digest(credentials.password or "", expected_password)
+
+    if not (username_ok and password_ok):
+        _admin_auth_error("Invalid admin username or password.")
+
+    return credentials.username
 
 
 MATERIAL_MAP = {
@@ -201,6 +243,14 @@ def root():
     }
 
 
+@app.get("/auth/admin-check")
+def admin_check(admin_username: str = Depends(require_admin)):
+    return {
+        "authenticated": True,
+        "username": admin_username,
+    }
+
+
 @app.get("/address/search")
 def address_search(q: str = Query(..., min_length=3)):
     return {
@@ -311,7 +361,7 @@ def create_full_estimate(request: EstimateRequest):
 
 
 @app.get("/estimates")
-def list_estimates():
+def list_estimates(admin_username: str = Depends(require_admin)):
     """
     Admin endpoint.
 
@@ -359,6 +409,7 @@ def email_estimate_summary(request: EstimateEmailRequest):
 def save_admin_decision(
     estimate_id: int,
     request: AdminDecisionUpdateRequest,
+    admin_username: str = Depends(require_admin),
 ):
     updated = update_admin_decision(
         estimate_id=estimate_id,
@@ -375,7 +426,10 @@ def save_admin_decision(
 
 
 @app.post("/email/admin-approved-proposal")
-def email_admin_approved_proposal(request: AdminProposalEmailRequest):
+def email_admin_approved_proposal(
+    request: AdminProposalEmailRequest,
+    admin_username: str = Depends(require_admin),
+):
     try:
         result = send_admin_approved_proposal_email(
             to_email=request.to_email,

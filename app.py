@@ -24,6 +24,121 @@ ADDRESS_PLACE_URL = "http://127.0.0.1:8000/address/place"
 EMAIL_SUMMARY_URL = "http://127.0.0.1:8000/email/estimate-summary"
 ADMIN_DECISION_URL = "http://127.0.0.1:8000/estimates/{estimate_id}/admin-decision"
 ADMIN_PROPOSAL_EMAIL_URL = "http://127.0.0.1:8000/email/admin-approved-proposal"
+ADMIN_AUTH_CHECK_URL = "http://127.0.0.1:8000/auth/admin-check"
+
+
+# ---------------------------------------------------------
+# Lightweight admin login helpers
+# ---------------------------------------------------------
+
+def initialize_auth_state():
+    if "admin_authenticated" not in st.session_state:
+        st.session_state.admin_authenticated = False
+
+    if "admin_username" not in st.session_state:
+        st.session_state.admin_username = ""
+
+    if "admin_password" not in st.session_state:
+        st.session_state.admin_password = ""
+
+
+def get_admin_auth():
+    if not st.session_state.get("admin_authenticated"):
+        return None
+
+    username = st.session_state.get("admin_username", "")
+    password = st.session_state.get("admin_password", "")
+
+    if not username or not password:
+        return None
+
+    return (username, password)
+
+
+def clear_admin_auth_state():
+    st.session_state.admin_authenticated = False
+    st.session_state.admin_username = ""
+    st.session_state.admin_password = ""
+
+
+def logout_admin():
+    clear_admin_auth_state()
+    st.rerun()
+
+
+def verify_admin_credentials(username: str, password: str) -> tuple[bool, str]:
+    if not username or not password:
+        return False, "Please enter both username and password."
+
+    try:
+        response = requests.get(
+            ADMIN_AUTH_CHECK_URL,
+            auth=(username, password),
+            timeout=20,
+        )
+    except requests.exceptions.RequestException as error:
+        return False, f"Could not reach admin authentication endpoint: {error}"
+
+    if response.status_code == 200:
+        return True, "Admin login successful."
+
+    if response.status_code == 500:
+        return (
+            False,
+            "Admin authentication is not configured. Add ADMIN_USERNAME and ADMIN_PASSWORD to .env, then restart FastAPI.",
+        )
+
+    if response.status_code == 401:
+        return False, "Invalid admin username or password."
+
+    return False, f"Admin login failed: {response.status_code} {response.text}"
+
+
+def render_admin_login():
+    st.title("FenceScope AI Admin Login")
+    st.caption("Estimator-only access for reviewing submitted fence estimates.")
+
+    st.info(
+        "Admin review is protected."
+    )
+
+    with st.container(border=True):
+        username = st.text_input("Admin username", key="admin_login_username")
+        password = st.text_input(
+            "Admin password",
+            type="password",
+            key="admin_login_password",
+        )
+
+        login_clicked = st.button("Log In", type="primary")
+
+        st.caption("To return to the customer intake workflow, choose User View in the sidebar.")
+
+        if login_clicked:
+            ok, message = verify_admin_credentials(username, password)
+
+            if ok:
+                st.session_state.admin_authenticated = True
+                st.session_state.admin_username = username
+                st.session_state.admin_password = password
+                st.success(message)
+                st.rerun()
+            else:
+                st.error(message)
+
+
+def render_admin_sidebar_status():
+    with st.sidebar:
+        st.divider()
+        st.subheader("Access")
+
+        if st.session_state.get("admin_authenticated"):
+            username = st.session_state.get("admin_username") or "admin"
+            st.success(f"Admin signed in: {username}")
+            if st.button("Log out of Admin"):
+                logout_admin()
+        else:
+            st.caption("Admin Review requires login.")
 
 
 # ---------------------------------------------------------
@@ -2091,8 +2206,18 @@ REVIEW_STATUS_OPTIONS = {
 
 
 def fetch_saved_estimates():
+    admin_auth = get_admin_auth()
+
+    if not admin_auth:
+        st.warning("Please log in as an admin to view saved estimates.")
+        return []
+
     try:
-        response = requests.get(ESTIMATES_URL, timeout=30)
+        response = requests.get(
+            ESTIMATES_URL,
+            auth=admin_auth,
+            timeout=30,
+        )
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as error:
@@ -2304,6 +2429,7 @@ def save_review_status_to_backend(
         response = requests.patch(
             ADMIN_DECISION_URL.format(estimate_id=estimate_id),
             json=payload,
+            auth=get_admin_auth(),
             timeout=30,
         )
         response.raise_for_status()
@@ -2344,6 +2470,7 @@ def save_then_send_admin_email(
         save_response = requests.patch(
             ADMIN_DECISION_URL.format(estimate_id=estimate_id),
             json=save_payload,
+            auth=get_admin_auth(),
             timeout=30,
         )
         save_response.raise_for_status()
@@ -2358,6 +2485,7 @@ def save_then_send_admin_email(
         send_response = requests.post(
             ADMIN_PROPOSAL_EMAIL_URL,
             json=send_payload,
+            auth=get_admin_auth(),
             timeout=60,
         )
         send_response.raise_for_status()
@@ -2849,15 +2977,24 @@ def main():
 
     init_db()
     initialize_session_state()
+    initialize_auth_state()
 
-    view = st.sidebar.radio("Choose View", ["User View", "Admin View"])
+    view = st.sidebar.radio(
+        "Choose View",
+        ["User View", "Admin View"],
+    )
 
+    render_admin_sidebar_status()
     render_sidebar()
 
     if view == "User View":
         render_user_view()
-    else:
+        return
+
+    if st.session_state.get("admin_authenticated"):
         render_admin_view()
+    else:
+        render_admin_login()
 
 
 if __name__ == "__main__":

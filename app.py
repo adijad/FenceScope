@@ -831,6 +831,7 @@ def send_customer_summary_email(result, customer_email, customer_name, complianc
     }
 
     with st.spinner("Sending estimate summary email..."):
+        st.write("DEBUG email endpoint:", EMAIL_SUMMARY_URL)
         try:
             response = requests.post(
                 EMAIL_SUMMARY_URL,

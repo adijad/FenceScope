@@ -21,7 +21,12 @@ QUESTIONS_URL = "http://127.0.0.1:8000/questions"
 ESTIMATES_URL = "http://127.0.0.1:8000/estimates"
 ADDRESS_AUTOCOMPLETE_URL = "http://127.0.0.1:8000/address/autocomplete"
 ADDRESS_PLACE_URL = "http://127.0.0.1:8000/address/place"
+EMAIL_SUMMARY_URL = "http://127.0.0.1:8000/email/estimate-summary"
 
+
+# ---------------------------------------------------------
+# Measurement helpers
+# ---------------------------------------------------------
 
 def haversine_feet(lat1, lon1, lat2, lon2):
     earth_radius_feet = 20925524.9
@@ -88,6 +93,10 @@ def extract_drawn_measurement_feet(map_data):
     return None
 
 
+# ---------------------------------------------------------
+# Address lookup helpers
+# ---------------------------------------------------------
+
 def autocomplete_address_options(search_term: str):
     if not search_term or len(search_term.strip()) < 2:
         return []
@@ -143,6 +152,10 @@ def load_selected_place(selected_prediction: str):
         st.error(f"Could not load selected place: {error}")
 
 
+# ---------------------------------------------------------
+# Session state
+# ---------------------------------------------------------
+
 def initialize_session_state():
     if "selected_address" not in st.session_state:
         st.session_state.selected_address = "888 Patrick Henry Dr, Blacksburg, VA 24060, USA"
@@ -192,6 +205,24 @@ def initialize_session_state():
     if "question_confidence_score" not in st.session_state:
         st.session_state.question_confidence_score = None
 
+    if "workflow_stage" not in st.session_state:
+        st.session_state.workflow_stage = "idle"
+
+    if "workflow_logs" not in st.session_state:
+        st.session_state.workflow_logs = []
+
+    if "workflow_error" not in st.session_state:
+        st.session_state.workflow_error = None
+
+    if "current_question_index" not in st.session_state:
+        st.session_state.current_question_index = 0
+
+    if "email_sent" not in st.session_state:
+        st.session_state.email_sent = False
+
+    if "email_result" not in st.session_state:
+        st.session_state.email_result = None
+
 
 def reset_workflow_state():
     st.session_state.compliance_report = None
@@ -206,6 +237,41 @@ def reset_workflow_state():
     st.session_state.question_risk_flags = []
     st.session_state.question_confidence_score = None
 
+    st.session_state.workflow_stage = "idle"
+    st.session_state.workflow_logs = []
+    st.session_state.workflow_error = None
+    st.session_state.current_question_index = 0
+
+
+def reset_guided_review_state():
+    st.session_state.compliance_report = None
+    st.session_state.compliance_checked = False
+    st.session_state.compliance_passed_or_review = False
+    st.session_state.estimate_result = None
+    st.session_state.latest_saved_customer = None
+
+    st.session_state.questions_checked = False
+    st.session_state.missing_questions = []
+    st.session_state.missing_answers = {}
+    st.session_state.question_risk_flags = []
+    st.session_state.question_confidence_score = None
+
+    st.session_state.workflow_stage = "idle"
+    st.session_state.workflow_logs = []
+    st.session_state.workflow_error = None
+    st.session_state.current_question_index = 0
+
+    st.session_state.email_sent = False
+    st.session_state.email_result = None
+
+
+def add_workflow_log(message: str):
+    st.session_state.workflow_logs.append(message)
+
+
+# ---------------------------------------------------------
+# Sidebar
+# ---------------------------------------------------------
 
 def render_sidebar():
     with st.sidebar:
@@ -215,11 +281,11 @@ def render_sidebar():
             1. Capture customer details  
             2. Select property address  
             3. Draw or enter fence measurement  
-            4. Run compliance pre-check  
-            5. Answer missing questions  
-            6. Generate estimate only if allowed  
-            7. Review estimate internally  
-            8. Send customer-safe follow-up
+            4. Start guided estimate review  
+            5. Run compliance pre-check  
+            6. Answer missing questions  
+            7. Generate estimate  
+            8. Save estimate for admin review
             """
         )
 
@@ -247,6 +313,10 @@ def render_sidebar():
         )
 
 
+# ---------------------------------------------------------
+# Shared rendering helpers
+# ---------------------------------------------------------
+
 def render_compliance_report(report):
     if not report:
         st.info("No compliance report available.")
@@ -273,7 +343,8 @@ def render_compliance_report(report):
         }.get(finding.get("status"), "⚠️")
 
         with st.expander(
-            f"{icon} {finding.get('rule_id', 'rule')}  (confidence {finding.get('confidence', 'N/A')})"
+            f"{icon} {finding.get('rule_id', 'rule')}  "
+            f"(confidence {finding.get('confidence', 'N/A')})"
         ):
             st.write(finding.get("explanation", "No explanation provided."))
 
@@ -313,6 +384,100 @@ def render_failed_compliance_guidance(report):
             "The compliance checker found a blocking issue. Review the selected fence height, yard location, material, and property address."
         )
 
+
+def render_risk_flags(risk_flags):
+    if not risk_flags:
+        st.write("No major risks flagged.")
+        return
+
+    for risk in risk_flags:
+        severity = risk.get("severity", "unknown").upper()
+        risk_type = risk.get("risk_type", "risk").replace("_", " ").title()
+        explanation = risk.get("explanation", "No explanation provided.")
+        recommended_action = risk.get("recommended_action", "No recommended action provided.")
+
+        st.markdown(
+            f"""
+            **{risk_type}**  
+            Severity: `{severity}`  
+            {explanation}  
+            Recommended action: {recommended_action}
+            """
+        )
+
+
+def render_line_items(line_items):
+    if not line_items:
+        st.info("No line items available.")
+        return
+
+    line_items_df = pd.DataFrame(line_items)
+    st.dataframe(line_items_df, use_container_width=True)
+
+
+def render_customer_answers(missing_answers):
+    answered_items = {
+        question: answer
+        for question, answer in (missing_answers or {}).items()
+        if answer and str(answer).strip()
+    }
+
+    if not answered_items:
+        st.info("No additional customer answers captured for this estimate.")
+        return
+
+    for question, answer in answered_items.items():
+        st.markdown(f"**Q:** {question}")
+        st.markdown(f"**A:** {answer}")
+        st.divider()
+
+
+def send_customer_summary_email(result, customer_email, customer_name, compliance_report):
+    if not customer_email:
+        st.error("Customer email is missing.")
+        return
+
+    email_payload = {
+        "to_email": customer_email,
+        "customer_name": customer_name,
+        "address": result.get("address"),
+        "estimate_id": result.get("estimate_id"),
+        "estimated_total": result.get("estimated_total"),
+        "low_range": result.get("low_range"),
+        "high_range": result.get("high_range"),
+        "status": result.get("status"),
+        "confidence_score": result.get("confidence_score"),
+        "compliance_overall": (compliance_report or {}).get("overall"),
+        "compliance_jurisdiction": (compliance_report or {}).get("jurisdiction"),
+        "remaining_questions": result.get("missing_questions", []),
+    }
+
+    with st.spinner("Sending estimate summary email..."):
+        try:
+            response = requests.post(
+                EMAIL_SUMMARY_URL,
+                json=email_payload,
+                timeout=60,
+            )
+        except requests.exceptions.RequestException as error:
+            st.error(f"Could not connect to email endpoint: {error}")
+            return
+
+    if response.status_code != 200:
+        st.error("Email could not be sent.")
+        st.code(response.text)
+        return
+
+    data = response.json()
+
+    st.session_state.email_sent = True
+    st.session_state.email_result = data
+
+    st.success(f"Estimate summary sent to {customer_email}.")
+
+# ---------------------------------------------------------
+# Typed question rendering
+# ---------------------------------------------------------
 
 def normalize_question_text(question: str) -> str:
     return question.strip().lower()
@@ -596,134 +761,377 @@ def render_typed_question_input(question: str, idx: int) -> str:
     return answer.strip()
 
 
-def render_missing_questions_section(payload):
-    st.subheader("5. Additional Questions")
+# ---------------------------------------------------------
+# Guided workflow engine
+# ---------------------------------------------------------
 
-    if not st.session_state.compliance_checked:
-        st.info("Run the compliance pre-check before reviewing missing information.")
+def render_workflow_trace():
+    stage = st.session_state.workflow_stage
+
+    progress_items = [
+        ("validate", "Project details captured"),
+        ("compliance", "Local fence code pre-check"),
+        ("questions", "Missing information review"),
+        ("estimate", "Estimate generation"),
+        ("save", "Save for admin review"),
+    ]
+
+    completed_by_stage = {
+        "idle": [],
+        "running_compliance": ["validate"],
+        "compliance_failed": ["validate", "compliance"],
+        "generating_questions": ["validate", "compliance"],
+        "answering_questions": ["validate", "compliance", "questions"],
+        "ready_to_estimate": ["validate", "compliance", "questions"],
+        "generating_estimate": ["validate", "compliance", "questions"],
+        "estimate_complete": ["validate", "compliance", "questions", "estimate", "save"],
+        "error": [],
+    }
+
+    active_by_stage = {
+        "running_compliance": "compliance",
+        "generating_questions": "questions",
+        "answering_questions": "questions",
+        "ready_to_estimate": "estimate",
+        "generating_estimate": "estimate",
+    }
+
+    completed = completed_by_stage.get(stage, [])
+    active = active_by_stage.get(stage)
+
+    st.markdown("#### Review Progress")
+
+    for key, label in progress_items:
+        if key in completed:
+            st.markdown(f"✅ {label}")
+        elif key == active:
+            st.markdown(f"⏳ {label}")
+        else:
+            st.markdown(f"○ {label}")
+
+    if st.session_state.workflow_logs:
+        with st.expander("Operational trace", expanded=True):
+            for log in st.session_state.workflow_logs:
+                st.write(log)
+
+
+def validate_required_inputs(payload):
+    missing = []
+
+    if not payload.get("customer_name"):
+        missing.append("Customer name")
+
+    if not payload.get("customer_email"):
+        missing.append("Email address")
+
+    if not payload.get("customer_phone"):
+        missing.append("Phone number")
+
+    if not payload.get("address"):
+        missing.append("Property address")
+
+    if not payload.get("linear_feet") or payload.get("linear_feet") <= 0:
+        missing.append("Fence length")
+
+    return missing
+
+
+def start_guided_review(payload, customer_notes):
+    reset_guided_review_state()
+
+    missing_required = validate_required_inputs(payload)
+
+    if missing_required:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = (
+            "Please complete these fields before starting: "
+            + ", ".join(missing_required)
+        )
         return
 
-    if not st.session_state.compliance_passed_or_review:
-        st.warning("Additional questions are disabled because the compliance pre-check failed.")
+    st.session_state.workflow_stage = "running_compliance"
+    add_workflow_log("Project details captured.")
+    add_workflow_log("Running local fence code pre-check.")
+
+    try:
+        precheck_response = requests.post(PRECHECK_URL, json=payload, timeout=60)
+    except requests.exceptions.RequestException as error:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = f"Could not connect to compliance pre-check: {error}"
         return
 
-    st.caption(
-        "FenceScope reviews the request for missing details before generating the estimate."
+    if precheck_response.status_code != 200:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = "Compliance pre-check returned an error."
+        add_workflow_log(precheck_response.text)
+        return
+
+    report = precheck_response.json()
+
+    st.session_state.compliance_report = report
+    st.session_state.compliance_checked = True
+    st.session_state.compliance_passed_or_review = report["overall"] != "FAIL"
+
+    jurisdiction = report.get("jurisdiction") or "unknown jurisdiction"
+    add_workflow_log(f"Compliance result: {report['overall']} for {jurisdiction}.")
+
+    if report["overall"] == "FAIL":
+        st.session_state.workflow_stage = "compliance_failed"
+        add_workflow_log("Estimate generation blocked because compliance failed.")
+        return
+
+    st.session_state.workflow_stage = "generating_questions"
+    add_workflow_log("Checking project details for missing customer information.")
+
+    try:
+        questions_response = requests.post(QUESTIONS_URL, json=payload, timeout=60)
+    except requests.exceptions.RequestException as error:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = f"Could not connect to questions endpoint: {error}"
+        return
+
+    if questions_response.status_code != 200:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = "Missing question check returned an error."
+        add_workflow_log(questions_response.text)
+        return
+
+    question_data = questions_response.json()
+
+    st.session_state.questions_checked = True
+    st.session_state.missing_questions = question_data.get("missing_questions", [])
+    st.session_state.question_risk_flags = question_data.get("risk_flags", [])
+    st.session_state.question_confidence_score = question_data.get("confidence_score")
+    st.session_state.missing_answers = {}
+    st.session_state.current_question_index = 0
+
+    question_count = len(st.session_state.missing_questions)
+    add_workflow_log(f"Found {question_count} customer question(s) to confirm.")
+
+    if question_count == 0:
+        add_workflow_log("No missing questions found. Generating estimate.")
+        finalize_guided_estimate(payload, customer_notes)
+        return
+
+    st.session_state.workflow_stage = "answering_questions"
+
+
+def finalize_guided_estimate(payload, customer_notes):
+    st.session_state.workflow_stage = "generating_estimate"
+    add_workflow_log("Preparing final estimate payload.")
+
+    answered_questions_text = "\n".join(
+        [
+            f"{question}: {answer}"
+            for question, answer in st.session_state.missing_answers.items()
+            if answer and str(answer).strip()
+        ]
     )
 
-    if st.button("Generate Missing Questions"):
-        with st.spinner("Reviewing request for missing details..."):
-            try:
-                response = requests.post(QUESTIONS_URL, json=payload, timeout=60)
-            except requests.exceptions.RequestException as error:
-                st.error(f"Could not connect to questions endpoint: {error}")
-                st.stop()
+    final_payload = payload.copy()
 
-        if response.status_code != 200:
-            st.error("Missing question check returned an error.")
-            st.code(response.text)
-            st.stop()
+    if answered_questions_text:
+        final_payload["customer_notes"] = (
+            f"{customer_notes}\n\nAdditional customer answers:\n"
+            f"{answered_questions_text}"
+        )
 
-        data = response.json()
+    final_payload["missing_answers"] = st.session_state.missing_answers
 
-        st.session_state.questions_checked = True
-        st.session_state.missing_questions = data.get("missing_questions", [])
-        st.session_state.question_risk_flags = data.get("risk_flags", [])
-        st.session_state.question_confidence_score = data.get("confidence_score")
-        st.session_state.missing_answers = {}
-        st.session_state.estimate_result = None
-        st.session_state.latest_saved_customer = None
+    add_workflow_log("Running pricing, risk review, proposal generation, and database save.")
 
-    if not st.session_state.questions_checked:
-        st.info("Generate missing questions before creating the estimate.")
+    try:
+        response = requests.post(API_URL, json=final_payload, timeout=90)
+    except requests.exceptions.RequestException as error:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = f"Could not connect to backend: {error}"
         return
 
-    if not st.session_state.missing_questions:
-        st.success("No missing questions found. Estimate generation is ready.")
+    if response.status_code != 200:
+        st.session_state.workflow_stage = "error"
+        st.session_state.workflow_error = "Estimate could not be generated."
+        add_workflow_log(response.text)
         return
 
-    st.warning("Please answer these questions before generating the estimate.")
+    result = response.json()
 
-    for idx, question in enumerate(st.session_state.missing_questions):
-        with st.container(border=True):
-            answer = render_typed_question_input(question, idx)
-            st.session_state.missing_answers[question] = answer
+    st.session_state.estimate_result = result
+    st.session_state.latest_saved_customer = {
+        "id": result.get("customer_id"),
+        "name": payload.get("customer_name"),
+        "email": payload.get("customer_email"),
+        "phone": payload.get("customer_phone"),
+        "address": payload.get("address"),
+    }
+
+    st.session_state.workflow_stage = "estimate_complete"
+    add_workflow_log(f"Estimate saved with ID: {result.get('estimate_id')}.")
+    add_workflow_log("Admin review record is ready.")
+
+
+def render_single_question_card(payload, customer_notes):
+    questions = st.session_state.missing_questions
+    idx = st.session_state.current_question_index
+
+    if not questions:
+        st.success("No missing questions. Preparing estimate.")
+        if st.button("Generate Estimate", type="primary"):
+            with st.spinner("Generating estimate..."):
+                finalize_guided_estimate(payload, customer_notes)
+            st.rerun()
+        return
+
+    total = len(questions)
+    question = questions[idx]
+
+    st.markdown(f"### Question {idx + 1} of {total}")
+
+    progress_ratio = (idx + 1) / total
+    st.progress(progress_ratio)
+
+    with st.container(border=True):
+        answer = render_typed_question_input(question, idx)
+        st.session_state.missing_answers[question] = answer
 
     answered_count = sum(
         1
-        for answer in st.session_state.missing_answers.values()
-        if answer and answer.strip()
+        for value in st.session_state.missing_answers.values()
+        if value and str(value).strip()
     )
 
-    total_count = len(st.session_state.missing_questions)
+    st.caption(f"Answered {answered_count} of {total} required questions.")
 
-    st.caption(f"Answered {answered_count} of {total_count} required questions.")
+    nav_col1, nav_col2, nav_col3 = st.columns([1, 1, 2])
 
+    with nav_col1:
+        if st.button("Back", disabled=idx == 0):
+            st.session_state.current_question_index = max(0, idx - 1)
+            st.rerun()
 
-def missing_questions_ready():
-    if not st.session_state.questions_checked:
-        return False
+    with nav_col2:
+        if idx < total - 1:
+            if st.button("Next", type="primary"):
+                if not answer or not str(answer).strip():
+                    st.warning("Please answer this question before continuing.")
+                else:
+                    st.session_state.current_question_index = idx + 1
+                    st.rerun()
+        else:
+            if st.button("Done", type="primary"):
+                if not answer or not str(answer).strip():
+                    st.warning("Please answer this question before generating the estimate.")
+                else:
+                    add_workflow_log("Questionnaire completed.")
+                    with st.spinner("Generating estimate..."):
+                        finalize_guided_estimate(payload, customer_notes)
+                    st.rerun()
 
-    if not st.session_state.missing_questions:
-        return True
-
-    if len(st.session_state.missing_answers) < len(st.session_state.missing_questions):
-        return False
-
-    return all(
-        answer and answer.strip()
-        for answer in st.session_state.missing_answers.values()
-    )
-
-
-def render_risk_flags(risk_flags):
-    if not risk_flags:
-        st.write("No major risks flagged.")
-        return
-
-    for risk in risk_flags:
-        severity = risk.get("severity", "unknown").upper()
-        risk_type = risk.get("risk_type", "risk").replace("_", " ").title()
-        explanation = risk.get("explanation", "No explanation provided.")
-        recommended_action = risk.get("recommended_action", "No recommended action provided.")
-
-        st.markdown(
-            f"""
-            **{risk_type}**  
-            Severity: `{severity}`  
-            {explanation}  
-            Recommended action: {recommended_action}
-            """
-        )
+    with nav_col3:
+        st.caption("Your answers help the estimator avoid quoting with missing project details.")
 
 
-def render_line_items(line_items):
-    if not line_items:
-        st.info("No line items available.")
-        return
+def render_guided_estimate_workflow(payload, customer_notes):
+    st.subheader("4. Guided Estimate Review")
 
-    line_items_df = pd.DataFrame(line_items)
-    st.dataframe(line_items_df, use_container_width=True)
+    with st.container(border=True):
+        stage = st.session_state.workflow_stage
 
+        if stage == "idle":
+            st.markdown("### Ready to review your fence project?")
+            st.write(
+                "FenceScope will check local fence-code rules, collect any missing details, "
+                "generate the estimate, and save it for admin review."
+            )
 
-def render_customer_answers(missing_answers):
-    answered_items = {
-        question: answer
-        for question, answer in (missing_answers or {}).items()
-        if answer and str(answer).strip()
-    }
+            if st.button("Start Estimate Review", type="primary"):
+                with st.spinner("Starting estimate review..."):
+                    start_guided_review(payload, customer_notes)
+                st.rerun()
 
-    if not answered_items:
-        st.info("No additional customer answers captured for this estimate.")
-        return
+            return
 
-    for question, answer in answered_items.items():
-        st.markdown(f"**Q:** {question}")
-        st.markdown(f"**A:** {answer}")
+        render_workflow_trace()
+
         st.divider()
 
+        if stage == "error":
+            st.error(st.session_state.workflow_error or "Something went wrong.")
+            if st.button("Restart Review"):
+                reset_guided_review_state()
+                st.rerun()
+            return
+
+        if stage == "compliance_failed":
+            render_compliance_report(st.session_state.compliance_report)
+            render_failed_compliance_guidance(st.session_state.compliance_report)
+
+            if st.button("Edit Details and Restart Review"):
+                reset_guided_review_state()
+                st.rerun()
+
+            return
+
+        if stage == "answering_questions":
+            render_single_question_card(payload, customer_notes)
+            return
+
+        if stage == "generating_estimate":
+            st.info("Generating estimate...")
+            return
+
+        if stage == "estimate_complete":
+            st.success("Estimate ready.")
+            render_estimate_summary(st.session_state.estimate_result)
+
+            st.divider()
+
+            st.subheader("Email Summary")
+
+            if st.session_state.email_sent:
+                st.success(
+                    f"Estimate summary email sent to {payload.get('customer_email')}."
+                )
+            else:
+                st.write(
+                    "Send a customer-safe summary of this preliminary estimate to the email address provided above."
+                )
+
+                if st.button("Email Me This Estimate Summary", type="primary"):
+                    send_customer_summary_email(
+                        result=st.session_state.estimate_result,
+                        customer_email=payload.get("customer_email"),
+                        customer_name=payload.get("customer_name"),
+                        compliance_report=st.session_state.compliance_report,
+                    )
+                    st.rerun()
+
+            restart_col1, restart_col2 = st.columns([1, 3])
+
+            with restart_col1:
+                if st.button("Start New Review"):
+                    reset_guided_review_state()
+                    st.rerun()
+
+            with restart_col2:
+                st.caption(
+                    "This estimate has been saved for admin review. The customer-facing proposal remains internal until reviewed."
+                )
+
+            return
+
+        if stage in ["running_compliance", "generating_questions", "ready_to_estimate"]:
+            st.info("Workflow is running. Please wait.")
+
+
+# ---------------------------------------------------------
+# Estimate summary
+# ---------------------------------------------------------
 
 def render_estimate_summary(result):
+    if not result:
+        st.info("No estimate result available.")
+        return
+
     st.subheader("Estimate Summary")
 
     metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
@@ -783,6 +1191,10 @@ def render_estimate_summary(result):
         "A representative will contact the customer to confirm any final details, review compliance requirements, and finalize the quote."
     )
 
+
+# ---------------------------------------------------------
+# User view
+# ---------------------------------------------------------
 
 def render_user_view():
     st.title("FenceScope AI")
@@ -1037,132 +1449,19 @@ def render_user_view():
     ):
         reset_workflow_state()
         st.session_state.last_payload_fingerprint = payload_fingerprint
-        st.info("Project details changed. Please run the compliance pre-check again.")
+        st.info("Project details changed. Start the estimate review again.")
 
     if st.session_state.last_payload_fingerprint is None:
         st.session_state.last_payload_fingerprint = payload_fingerprint
 
-    st.subheader("4. Fence Code Compliance Pre-Check")
+    render_guided_estimate_workflow(payload, customer_notes)
 
-    st.caption(
-        "FenceScope checks local fence rules before pricing so non-compliant requests are not quoted automatically."
-    )
 
-    if st.button("Check Compliance", type="primary"):
-        if not customer_name or not customer_email or not customer_phone or not selected_address:
-            st.error("Customer name, email, phone number, and property address are required.")
-            st.stop()
 
-        with st.spinner("Checking local fence code before generating estimate..."):
-            try:
-                response = requests.post(PRECHECK_URL, json=payload, timeout=60)
-            except requests.exceptions.RequestException as error:
-                st.error(f"Could not connect to compliance pre-check: {error}")
-                st.stop()
 
-        if response.status_code != 200:
-            st.error("Compliance pre-check returned an error.")
-            st.code(response.text)
-            st.stop()
-
-        report = response.json()
-
-        st.session_state.compliance_report = report
-        st.session_state.compliance_checked = True
-        st.session_state.compliance_passed_or_review = report["overall"] != "FAIL"
-        st.session_state.estimate_result = None
-        st.session_state.latest_saved_customer = None
-
-        st.session_state.questions_checked = False
-        st.session_state.missing_questions = []
-        st.session_state.missing_answers = {}
-        st.session_state.question_risk_flags = []
-        st.session_state.question_confidence_score = None
-
-        st.session_state.last_payload_fingerprint = payload_fingerprint
-
-    if st.session_state.compliance_checked and st.session_state.compliance_report:
-        render_compliance_report(st.session_state.compliance_report)
-
-        if st.session_state.compliance_report["overall"] == "FAIL":
-            render_failed_compliance_guidance(st.session_state.compliance_report)
-
-    st.divider()
-
-    render_missing_questions_section(payload)
-
-    st.divider()
-
-    st.subheader("6. Generate Estimate")
-
-    if not st.session_state.compliance_checked:
-        st.info("Run the compliance pre-check before generating an estimate.")
-        st.button("Generate Estimate", disabled=True)
-
-    elif not st.session_state.compliance_passed_or_review:
-        st.error("Estimate generation is blocked because the compliance pre-check failed.")
-        st.button("Generate Estimate", disabled=True)
-
-    elif not st.session_state.questions_checked:
-        st.info("Generate and answer missing questions before creating the estimate.")
-        st.button("Generate Estimate", disabled=True)
-
-    elif not missing_questions_ready():
-        st.warning("Please answer all missing questions before generating the estimate.")
-        st.button("Generate Estimate", disabled=True)
-
-    else:
-        st.success("Compliance and missing-info checks completed. Estimate generation is now available.")
-
-        if st.button("Generate Estimate", type="primary"):
-            answered_questions_text = "\n".join(
-                [
-                    f"{question}: {answer}"
-                    for question, answer in st.session_state.missing_answers.items()
-                    if answer and str(answer).strip()
-                ]
-            )
-
-            final_payload = payload.copy()
-
-            if answered_questions_text:
-                final_payload["customer_notes"] = (
-                    f"{customer_notes}\n\nAdditional customer answers:\n"
-                    f"{answered_questions_text}"
-                )
-
-            final_payload["missing_answers"] = st.session_state.missing_answers
-
-            with st.spinner("Running estimate workflow..."):
-                try:
-                    response = requests.post(API_URL, json=final_payload, timeout=90)
-                except requests.exceptions.RequestException as error:
-                    st.error(f"Could not connect to backend: {error}")
-                    st.stop()
-
-            if response.status_code != 200:
-                st.error("Estimate could not be generated.")
-                st.code(response.text)
-                st.stop()
-
-            result = response.json()
-            st.session_state.estimate_result = result
-
-            st.success(
-                f"Estimate generated successfully. Estimate saved with ID: {result.get('estimate_id')}."
-            )
-
-            st.session_state.latest_saved_customer = {
-                "id": result.get("customer_id"),
-                "name": customer_name,
-                "email": customer_email,
-                "phone": customer_phone,
-                "address": selected_address,
-            }
-
-    if st.session_state.estimate_result:
-        render_estimate_summary(st.session_state.estimate_result)
-
+# ---------------------------------------------------------
+# Admin view
+# ---------------------------------------------------------
 
 def fetch_saved_estimates():
     try:
@@ -1451,6 +1750,10 @@ def render_admin_view():
 
     render_customer_history()
 
+
+# ---------------------------------------------------------
+# Main
+# ---------------------------------------------------------
 
 def main():
     st.set_page_config(

@@ -78,3 +78,18 @@ class EstimateResult(BaseModel):
     status: EstimateStatus
     customer_proposal: str
     internal_notes: str
+
+
+class EstimateEmailRequest(BaseModel):
+    to_email: str
+    customer_name: str
+    address: str
+    estimate_id: Optional[int] = None
+    estimated_total: float
+    low_range: float
+    high_range: float
+    status: str
+    confidence_score: float
+    compliance_overall: Optional[str] = None
+    compliance_jurisdiction: Optional[str] = None
+    remaining_questions: List[str] = []

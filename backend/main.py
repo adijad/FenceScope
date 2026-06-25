@@ -5,13 +5,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from compliance.agent import check_compliance
 from compliance.schemas import FenceSpec, ComplianceReport
 
+
+
 from backend.address_lookup import (
     autocomplete_address,
     get_place_details,
     search_address,
 )
 from backend.database import init_db
-from backend.models import EstimateRequest, EstimateResult, MissingQuestionsResult
+from backend.models import (
+    EstimateRequest,
+    EstimateResult,
+    MissingQuestionsResult,
+    EstimateEmailRequest,
+)
+from backend.email_service import send_estimate_summary_email
 from backend.risk_agent import analyze_risks
 from backend.storage import create_customer, create_estimate, get_all_estimates
 from backend.workflow import run_estimate_workflow
@@ -191,3 +199,38 @@ def list_estimates():
     """
     estimates = get_all_estimates()
     return jsonable_encoder(estimates)
+
+@app.post("/email/estimate-summary")
+def email_estimate_summary(request: EstimateEmailRequest):
+    """
+    Sends a customer-safe preliminary estimate summary.
+
+    This endpoint intentionally does not send internal estimator notes
+    or the proposal draft. Those remain admin-review artifacts.
+    """
+    try:
+        result = send_estimate_summary_email(
+            to_email=request.to_email,
+            customer_name=request.customer_name,
+            address=request.address,
+            estimate_id=request.estimate_id,
+            estimated_total=request.estimated_total,
+            low_range=request.low_range,
+            high_range=request.high_range,
+            status=request.status,
+            confidence_score=request.confidence_score,
+            compliance_overall=request.compliance_overall,
+            compliance_jurisdiction=request.compliance_jurisdiction,
+            remaining_questions=request.remaining_questions,
+        )
+
+        return result
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Could not send estimate summary email.",
+                "error": str(error),
+            },
+        )

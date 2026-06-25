@@ -16,6 +16,7 @@ from backend.storage import create_customer, get_all_customers
 
 API_URL = "http://127.0.0.1:8000/estimate"
 PRECHECK_URL = "http://127.0.0.1:8000/precheck"
+QUESTIONS_URL = "http://127.0.0.1:8000/questions"
 ADDRESS_AUTOCOMPLETE_URL = "http://127.0.0.1:8000/address/autocomplete"
 ADDRESS_PLACE_URL = "http://127.0.0.1:8000/address/place"
 
@@ -174,6 +175,21 @@ def initialize_session_state():
     if "latest_saved_customer" not in st.session_state:
         st.session_state.latest_saved_customer = None
 
+    if "questions_checked" not in st.session_state:
+        st.session_state.questions_checked = False
+
+    if "missing_questions" not in st.session_state:
+        st.session_state.missing_questions = []
+
+    if "missing_answers" not in st.session_state:
+        st.session_state.missing_answers = {}
+
+    if "question_risk_flags" not in st.session_state:
+        st.session_state.question_risk_flags = []
+
+    if "question_confidence_score" not in st.session_state:
+        st.session_state.question_confidence_score = None
+
 
 def reset_workflow_state():
     st.session_state.compliance_report = None
@@ -181,6 +197,12 @@ def reset_workflow_state():
     st.session_state.compliance_passed_or_review = False
     st.session_state.estimate_result = None
     st.session_state.latest_saved_customer = None
+
+    st.session_state.questions_checked = False
+    st.session_state.missing_questions = []
+    st.session_state.missing_answers = {}
+    st.session_state.question_risk_flags = []
+    st.session_state.question_confidence_score = None
 
 
 def render_sidebar():
@@ -192,9 +214,10 @@ def render_sidebar():
             2. Select property address  
             3. Draw or enter fence measurement  
             4. Run compliance pre-check  
-            5. Generate estimate only if allowed  
-            6. Review estimate internally  
-            7. Send customer-safe follow-up
+            5. Answer missing questions  
+            6. Generate estimate only if allowed  
+            7. Review estimate internally  
+            8. Send customer-safe follow-up
             """
         )
 
@@ -206,6 +229,7 @@ def render_sidebar():
             **Address autocomplete:** Finds property location  
             **Map:** Measures linear footage  
             **Compliance agent:** Checks local fence code first  
+            **Question agent:** Finds missing customer details before estimate  
             **Pricing engine:** Calculates price deterministically  
             **Risk agent:** Reviews risks and missing info  
             **Proposal agent:** Drafts internal proposal copy  
@@ -282,6 +306,358 @@ def render_failed_compliance_guidance(report):
             "The compliance checker found a blocking issue. Review the selected fence height, yard location, material, and property address."
         )
 
+def normalize_question_text(question: str) -> str:
+    return question.strip().lower()
+
+
+def question_key_from_text(question: str) -> str:
+    q = normalize_question_text(question)
+
+    if "hoa" in q:
+        return "hoa_approval"
+
+    if "pet" in q or "dog" in q:
+        return "pet_containment"
+
+    if "timeline" in q or "desired installation" in q or "schedule" in q:
+        return "timeline"
+
+    if "material" in q and ("existing fence" in q or "old fence" in q):
+        return "existing_fence_material"
+
+    if "condition" in q and ("old" in q or "existing" in q or "chain link" in q):
+        return "old_fence_condition_length"
+
+    if "slope" in q or "grade" in q:
+        return "slope_details"
+
+    if "property line" in q or "neighbor" in q or "shared fence" in q:
+        return "property_line_uncertainty"
+
+    if "access" in q:
+        return "access_details"
+
+    if "gate" in q:
+        return "gate_details"
+
+    return "free_text"
+
+
+def render_typed_question_input(question: str, idx: int) -> str:
+    question_key = question_key_from_text(question)
+    base_key = f"typed_question_{idx}_{question_key}"
+
+    st.markdown(f"**{question}**")
+
+    if question_key == "hoa_approval":
+        answer = st.selectbox(
+            "HOA approval status",
+            [
+                "Select an option",
+                "Yes, HOA approval has been obtained",
+                "No, HOA approval has not been obtained",
+                "Not sure / customer needs to check",
+                "No HOA applies to this property",
+            ],
+            key=f"{base_key}_select",
+        )
+
+        if answer == "Select an option":
+            return ""
+
+        return answer
+
+    if question_key == "pet_containment":
+        primary = st.selectbox(
+            "Is this fence intended for pet containment?",
+            [
+                "Select an option",
+                "Yes, mainly for pet containment",
+                "Partially, pets are one reason",
+                "No, not for pet containment",
+            ],
+            key=f"{base_key}_select",
+        )
+
+        details = st.text_input(
+            "Optional pet details",
+            placeholder="Example: two dogs, small dog gap concerns, gate latch concerns",
+            key=f"{base_key}_details",
+        )
+
+        if primary == "Select an option":
+            return ""
+
+        if details.strip():
+            return f"{primary}. Details: {details.strip()}"
+
+        return primary
+
+    if question_key == "timeline":
+        answer = st.selectbox(
+            "Desired installation timeline",
+            [
+                "Select an option",
+                "ASAP",
+                "Within 1 to 2 weeks",
+                "Within 2 to 4 weeks",
+                "Within 1 to 2 months",
+                "Flexible / no rush",
+                "Customer is not sure yet",
+            ],
+            key=f"{base_key}_select",
+        )
+
+        if answer == "Select an option":
+            return ""
+
+        return answer
+
+    if question_key == "existing_fence_material":
+        material = st.selectbox(
+            "Existing fence material",
+            [
+                "Select an option",
+                "Chain link",
+                "Wood",
+                "Vinyl",
+                "Aluminum",
+                "Split rail",
+                "Mixed materials",
+                "Not sure",
+                "No existing fence",
+            ],
+            key=f"{base_key}_material",
+        )
+
+        condition = st.selectbox(
+            "Existing fence condition",
+            [
+                "Select an option",
+                "Good condition",
+                "Partially damaged",
+                "Heavily damaged",
+                "Partially removed already",
+                "Fully standing",
+                "Not sure",
+                "Not applicable",
+            ],
+            key=f"{base_key}_condition",
+        )
+
+        if material == "Select an option" or condition == "Select an option":
+            return ""
+
+        return f"Existing fence material: {material}. Condition: {condition}."
+
+    if question_key == "old_fence_condition_length":
+        condition = st.selectbox(
+            "Old fence condition",
+            [
+                "Select an option",
+                "Good condition",
+                "Partially damaged",
+                "Heavily damaged",
+                "Partially removed already",
+                "Fully standing",
+                "Not sure",
+            ],
+            key=f"{base_key}_condition",
+        )
+
+        old_fence_length = st.number_input(
+            "Approximate old fence length to remove",
+            min_value=0.0,
+            value=0.0,
+            step=1.0,
+            key=f"{base_key}_length",
+        )
+
+        if condition == "Select an option":
+            return ""
+
+        if old_fence_length <= 0:
+            return f"Old fence condition: {condition}. Old fence length: not sure."
+
+        return f"Old fence condition: {condition}. Approximate removal length: {old_fence_length:.0f} linear feet."
+
+    if question_key == "slope_details":
+        slope_level = st.selectbox(
+            "Slope severity",
+            [
+                "Select an option",
+                "Slight slope",
+                "Moderate slope",
+                "Steep slope",
+                "Mixed slope across yard",
+                "Not sure",
+            ],
+            key=f"{base_key}_slope_level",
+        )
+
+        slope_uniformity = st.selectbox(
+            "Slope pattern",
+            [
+                "Select an option",
+                "Mostly uniform",
+                "Varies across the fence line",
+                "Only one section is sloped",
+                "Not sure",
+            ],
+            key=f"{base_key}_slope_pattern",
+        )
+
+        details = st.text_input(
+            "Optional slope details",
+            placeholder="Example: backyard slopes down toward the street",
+            key=f"{base_key}_details",
+        )
+
+        if slope_level == "Select an option" or slope_uniformity == "Select an option":
+            return ""
+
+        answer = f"Slope severity: {slope_level}. Slope pattern: {slope_uniformity}."
+
+        if details.strip():
+            answer += f" Details: {details.strip()}"
+
+        return answer
+
+    if question_key == "property_line_uncertainty":
+        answer = st.selectbox(
+            "Property line or neighbor uncertainty",
+            [
+                "Select an option",
+                "No known property line uncertainty",
+                "Customer is not sure about property line",
+                "Fence may be shared with neighbor",
+                "Survey may be needed",
+                "Neighbor approval may be needed",
+            ],
+            key=f"{base_key}_select",
+        )
+
+        if answer == "Select an option":
+            return ""
+
+        return answer
+
+    if question_key == "access_details":
+        answer = st.selectbox(
+            "Crew access to fence area",
+            [
+                "Select an option",
+                "Clear access",
+                "Narrow gate access",
+                "No vehicle access",
+                "Steep or difficult access",
+                "Obstructions may need removal",
+                "Not sure",
+            ],
+            key=f"{base_key}_select",
+        )
+
+        if answer == "Select an option":
+            return ""
+
+        return answer
+
+    if question_key == "gate_details":
+        answer = st.text_input(
+            "Gate details",
+            placeholder="Example: one 4 ft walk gate on left side, one double gate near driveway",
+            key=f"{base_key}_text",
+        )
+
+        return answer.strip()
+
+    answer = st.text_input(
+        "Answer",
+        key=f"{base_key}_text",
+    )
+
+    return answer.strip()
+
+
+def render_missing_questions_section(payload):
+    st.subheader("5. Additional Questions")
+
+    if not st.session_state.compliance_checked:
+        st.info("Run the compliance pre-check before reviewing missing information.")
+        return
+
+    if not st.session_state.compliance_passed_or_review:
+        st.warning("Additional questions are disabled because the compliance pre-check failed.")
+        return
+
+    st.caption(
+        "FenceScope reviews the request for missing details before generating the estimate."
+    )
+
+    if st.button("Generate Missing Questions"):
+        with st.spinner("Reviewing request for missing details..."):
+            try:
+                response = requests.post(QUESTIONS_URL, json=payload, timeout=60)
+            except requests.exceptions.RequestException as error:
+                st.error(f"Could not connect to questions endpoint: {error}")
+                st.stop()
+
+        if response.status_code != 200:
+            st.error("Missing question check returned an error.")
+            st.code(response.text)
+            st.stop()
+
+        data = response.json()
+
+        st.session_state.questions_checked = True
+        st.session_state.missing_questions = data.get("missing_questions", [])
+        st.session_state.question_risk_flags = data.get("risk_flags", [])
+        st.session_state.question_confidence_score = data.get("confidence_score")
+        st.session_state.missing_answers = {}
+        st.session_state.estimate_result = None
+        st.session_state.latest_saved_customer = None
+
+    if not st.session_state.questions_checked:
+        st.info("Generate missing questions before creating the estimate.")
+        return
+
+    if not st.session_state.missing_questions:
+        st.success("No missing questions found. Estimate generation is ready.")
+        return
+
+    st.warning("Please answer these questions before generating the estimate.")
+
+    for idx, question in enumerate(st.session_state.missing_questions):
+        with st.container(border=True):
+            answer = render_typed_question_input(question, idx)
+            st.session_state.missing_answers[question] = answer
+
+    answered_count = sum(
+        1
+        for answer in st.session_state.missing_answers.values()
+        if answer and answer.strip()
+    )
+
+    total_count = len(st.session_state.missing_questions)
+
+    st.caption(f"Answered {answered_count} of {total_count} required questions.")
+
+
+def missing_questions_ready():
+    if not st.session_state.questions_checked:
+        return False
+
+    if not st.session_state.missing_questions:
+        return True
+
+    if len(st.session_state.missing_answers) < len(st.session_state.missing_questions):
+        return False
+
+    return all(
+        answer and answer.strip()
+        for answer in st.session_state.missing_answers.values()
+    )
+
 
 def render_estimate_summary(result):
     st.subheader("Estimate Summary")
@@ -340,19 +716,19 @@ def render_estimate_summary(result):
             st.write("No major risks flagged.")
 
     with right_col:
-        st.subheader("Missing Questions")
+        st.subheader("Remaining Missing Questions")
 
         if result["missing_questions"]:
             for question in result["missing_questions"]:
                 st.write(f"- {question}")
         else:
-            st.write("No missing questions.")
+            st.success("No remaining missing questions.")
 
     st.divider()
 
     st.subheader("Customer Next Step")
     st.write(
-        "A representative will contact the customer to confirm any missing details, review compliance requirements, and finalize the quote."
+        "A representative will contact the customer to confirm any final details, review compliance requirements, and finalize the quote."
     )
 
 
@@ -664,6 +1040,13 @@ def render_user_view():
         st.session_state.compliance_passed_or_review = report["overall"] != "FAIL"
         st.session_state.estimate_result = None
         st.session_state.latest_saved_customer = None
+
+        st.session_state.questions_checked = False
+        st.session_state.missing_questions = []
+        st.session_state.missing_answers = {}
+        st.session_state.question_risk_flags = []
+        st.session_state.question_confidence_score = None
+
         st.session_state.last_payload_fingerprint = payload_fingerprint
 
     if st.session_state.compliance_checked and st.session_state.compliance_report:
@@ -675,10 +1058,18 @@ def render_user_view():
     st.divider()
 
     # -----------------------------
+    # Additional Questions
+    # -----------------------------
+
+    render_missing_questions_section(payload)
+
+    st.divider()
+
+    # -----------------------------
     # Estimate Generation
     # -----------------------------
 
-    st.subheader("5. Generate Estimate")
+    st.subheader("6. Generate Estimate")
 
     if not st.session_state.compliance_checked:
         st.info("Run the compliance pre-check before generating an estimate.")
@@ -688,13 +1079,39 @@ def render_user_view():
         st.error("Estimate generation is blocked because the compliance pre-check failed.")
         st.button("Generate Estimate", disabled=True)
 
+    elif not st.session_state.questions_checked:
+        st.info("Generate and answer missing questions before creating the estimate.")
+        st.button("Generate Estimate", disabled=True)
+
+    elif not missing_questions_ready():
+        st.warning("Please answer all missing questions before generating the estimate.")
+        st.button("Generate Estimate", disabled=True)
+
     else:
-        st.success("Compliance pre-check completed. Estimate generation is now available.")
+        st.success("Compliance and missing-info checks completed. Estimate generation is now available.")
 
         if st.button("Generate Estimate", type="primary"):
+            answered_questions_text = "\n".join(
+                [
+                    f"{question}: {answer}"
+                    for question, answer in st.session_state.missing_answers.items()
+                    if answer and answer.strip()
+                ]
+            )
+
+            final_payload = payload.copy()
+
+            if answered_questions_text:
+                final_payload["customer_notes"] = (
+                    f"{customer_notes}\n\nAdditional customer answers:\n"
+                    f"{answered_questions_text}"
+                )
+
+            final_payload["missing_answers"] = st.session_state.missing_answers
+
             with st.spinner("Running estimate workflow..."):
                 try:
-                    response = requests.post(API_URL, json=payload, timeout=90)
+                    response = requests.post(API_URL, json=final_payload, timeout=90)
                 except requests.exceptions.RequestException as error:
                     st.error(f"Could not connect to backend: {error}")
                     st.stop()
@@ -745,6 +1162,7 @@ def render_admin_view():
         result = st.session_state.estimate_result
         compliance_report = st.session_state.get("compliance_report")
         saved_customer = st.session_state.get("latest_saved_customer")
+        missing_answers = st.session_state.get("missing_answers", {})
 
         if saved_customer:
             st.success(f"Latest saved customer ID: {saved_customer['id']}")
@@ -769,6 +1187,22 @@ def render_admin_view():
             st.subheader("Compliance Report")
             render_compliance_report(compliance_report)
 
+        st.subheader("Customer Answers")
+
+        answered_items = {
+            question: answer
+            for question, answer in missing_answers.items()
+            if answer and answer.strip()
+        }
+
+        if answered_items:
+            for question, answer in answered_items.items():
+                st.markdown(f"**Q:** {question}")
+                st.markdown(f"**A:** {answer}")
+                st.divider()
+        else:
+            st.info("No additional customer answers captured for this estimate.")
+
         st.subheader("Line Items")
         st.dataframe(
             pd.DataFrame(result["line_items"]),
@@ -791,13 +1225,13 @@ def render_admin_view():
         else:
             st.write("No major risks flagged.")
 
-        st.subheader("Missing Questions")
+        st.subheader("Remaining Missing Questions")
 
         if result["missing_questions"]:
             for question in result["missing_questions"]:
                 st.write(f"- {question}")
         else:
-            st.write("No missing questions.")
+            st.success("No remaining missing questions.")
 
         st.subheader("Internal Estimator Notes")
         st.text_area(

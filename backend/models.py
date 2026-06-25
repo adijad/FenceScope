@@ -41,6 +41,8 @@ class EstimateRequest(BaseModel):
     slope_present: bool = False
     customer_notes: Optional[str] = None
 
+    missing_answers: Optional[dict[str, str]] = None
+
 
 class LineItem(BaseModel):
     label: str
@@ -56,6 +58,10 @@ class RiskFlag(BaseModel):
     explanation: str
     recommended_action: str
 
+class MissingQuestionsResult(BaseModel):
+    risk_flags: List[RiskFlag]
+    missing_questions: List[str]
+    confidence_score: float
 
 class EstimateResult(BaseModel):
     customer_name: str

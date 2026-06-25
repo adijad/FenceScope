@@ -315,4 +315,16 @@ def analyze_risks(req: EstimateRequest):
 
     final_confidence = max(0.35, min(1.0, round(final_confidence, 2)))
 
+    answered_questions = {
+    question.strip().lower()
+    for question, answer in (req.missing_answers or {}).items()
+    if answer and answer.strip()
+    }
+
+    final_questions = [
+        question
+        for question in final_questions
+        if question.strip().lower() not in answered_questions
+]
+
     return final_risks, final_questions, final_confidence

@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from compliance.agent import check_compliance
 from compliance.schemas import FenceSpec, ComplianceReport
 
+from backend.models import EstimateRequest, EstimateResult, MissingQuestionsResult
+from backend.risk_agent import analyze_risks
+
 from backend.address_lookup import (
     autocomplete_address,
     get_place_details,
@@ -83,6 +86,15 @@ def address_place(place_id: str = Query(..., min_length=3)):
         "place": get_place_details(place_id),
     }
 
+@app.post("/questions", response_model=MissingQuestionsResult)
+def get_missing_questions(request: EstimateRequest):
+    risk_flags, missing_questions, confidence_score = analyze_risks(request)
+
+    return MissingQuestionsResult(
+        risk_flags=risk_flags,
+        missing_questions=missing_questions,
+        confidence_score=confidence_score,
+    )
 
 @app.post("/compliance/check", response_model=ComplianceReport)
 def compliance_check(spec: FenceSpec):

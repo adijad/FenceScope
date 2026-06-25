@@ -2,6 +2,7 @@ import json
 import math
 import re
 import os
+import hmac
 
 import folium
 import pandas as pd
@@ -79,32 +80,58 @@ def logout_admin():
     st.rerun()
 
 
-def verify_admin_credentials(username: str, password: str) -> tuple[bool, str]:
-    if not username or not password:
-        return False, "Please enter both username and password."
+# def verify_admin_credentials(username: str, password: str) -> tuple[bool, str]:
+#     if not username or not password:
+#         return False, "Please enter both username and password."
 
+#     try:
+#         response = requests.get(
+#             ADMIN_AUTH_CHECK_URL,
+#             auth=(username, password),
+#             timeout=20,
+#         )
+#     except requests.exceptions.RequestException as error:
+#         return False, f"Could not reach admin authentication endpoint: {error}"
+
+#     if response.status_code == 200:
+#         return True, "Admin login successful."
+
+#     if response.status_code == 500:
+#         return (
+#             False,
+#             "Admin authentication is not configured. Add ADMIN_USERNAME and ADMIN_PASSWORD to .env, then restart FastAPI.",
+#         )
+
+#     if response.status_code == 401:
+#         return False, "Invalid admin username or password."
+
+#     return False, f"Admin login failed: {response.status_code} {response.text}"
+
+def get_secret_value(name: str, default=None):
+    """
+    Reads from Streamlit secrets in production and falls back to environment variables locally.
+    """
     try:
-        response = requests.get(
-            ADMIN_AUTH_CHECK_URL,
-            auth=(username, password),
-            timeout=20,
-        )
-    except requests.exceptions.RequestException as error:
-        return False, f"Could not reach admin authentication endpoint: {error}"
+        return st.secrets[name]
+    except Exception:
+        return os.getenv(name, default)
 
-    if response.status_code == 200:
+
+def verify_admin_credentials(username: str, password: str):
+    expected_username = get_secret_value("ADMIN_USERNAME")
+    expected_password = get_secret_value("ADMIN_PASSWORD")
+
+    if not expected_username or not expected_password:
+        return False, "Admin credentials are not configured."
+
+    username_ok = hmac.compare_digest(username or "", expected_username)
+    password_ok = hmac.compare_digest(password or "", expected_password)
+
+    if username_ok and password_ok:
+        st.session_state.admin_authenticated = True
         return True, "Admin login successful."
 
-    if response.status_code == 500:
-        return (
-            False,
-            "Admin authentication is not configured. Add ADMIN_USERNAME and ADMIN_PASSWORD to .env, then restart FastAPI.",
-        )
-
-    if response.status_code == 401:
-        return False, "Invalid admin username or password."
-
-    return False, f"Admin login failed: {response.status_code} {response.text}"
+    return False, "Invalid admin username or password."
 
 
 def render_admin_login():

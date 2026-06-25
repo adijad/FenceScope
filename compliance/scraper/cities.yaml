@@ -1,0 +1,59 @@
+# Auto-updated by scrape_ordinances.py --discover.
+# Original backed up to cities.yaml.bak.
+# Review any city marked REVIEW/ERROR in the run summary before extracting.
+
+virginia:
+- state: va
+  city: lynchburg
+  fence_url: https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST
+  search_term: fence
+- state: va
+  city: roanoke
+  search_term: fence
+  fence_url: https://library.municode.com/va/roanoke/codes/code_of_ordinances?nodeId=CORO1979_CH36.2ZO_ART4SURE_S36.2-410FEWAARTR
+- state: va
+  city: norfolk
+  search_term: fence
+- state: va
+  city: charlottesville
+  search_term: fence
+- state: va
+  city: harrisonburg
+  search_term: fence
+  fence_url: https://library.municode.com/va/harrisonburg/codes/code_of_ordinances?nodeId=PTIITHCOGEOR_TIT10PLDE_CH3ZO_ARTTMOAD_S10-3-115WAFE
+- state: va
+  city: blacksburg
+  search_term: fence
+  fence_url: https://library.municode.com/va/blacksburg/codes/code_of_ordinances?nodeId=CO_APXAORNO1137BLZOOR_ARTVDEST_DIV7MIST_S5730FEWA
+utah:
+- state: ut
+  city: cottonwood_heights
+  search_term: fence
+- state: ut
+  city: south_jordan
+  search_term: fence
+- state: ut
+  city: herriman
+  search_term: fence
+- state: ut
+  city: sandy
+  search_term: fence
+california:
+- state: ca
+  city: san_diego
+  search_term: fence
+- state: ca
+  city: sacramento
+  search_term: fence
+- state: ca
+  city: san_jose
+  search_term: fence
+  fence_url: https://library.municode.com/ca/san_jose/codes/code_of_ordinances?nodeId=TIT20ZO_CH20.30REZODI_PT6FERE_20.30.600FERE
+- state: ca
+  city: oakland
+  search_term: fence
+  fence_url: https://library.municode.com/ca/oakland/codes/planning_code?nodeId=TIT17PL_CH17.108GEHEYACORE_17.108.140FEDEHEBASIFRWA
+- state: ca
+  city: fresno
+  search_term: fence
+  fence_url: https://library.municode.com/ca/fresno/codes/code_of_ordinances?nodeId=MUCOCHFRCA_CH15CIDECOINRE_PTIIIREAPSOALDI_ART20GESIRE_S15-2006FEWAHE

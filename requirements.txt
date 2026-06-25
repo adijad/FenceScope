@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+openai
+playwright
+pyyaml
+streamlit
+requests
+pandas
+streamlit-folium
+folium
+streamlit-searchbox

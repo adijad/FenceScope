@@ -1,0 +1,31 @@
+# Fence-ordinance sources, grouped by state.
+# Each city needs: state (2-letter), city (Municode URL slug).
+# Add `fence_url` once you have the exact section URL (run --discover to find it).
+# Verify slugs at https://library.municode.com/<state>  (Municode uses underscores,
+# e.g. salt_lake_city, south_houston). Not every city is on Municode — misses are
+# logged so you can swap to American Legal (codelibrary.amlegal.com) or Zoneomics.
+
+virginia:
+  - state: va
+    city: lynchburg
+    # VERIFIED direct URL — Article VI, Site Development Standards (fence rules live here)
+    fence_url: "https://library.municode.com/va/lynchburg/codes/code_of_ordinances?nodeId=CH35.2ZOOR_ARTVISIDEST"
+    search_term: fence
+  - {state: va, city: roanoke,        search_term: fence}
+  - {state: va, city: norfolk,        search_term: fence}
+  - {state: va, city: charlottesville, search_term: fence}
+  - {state: va, city: harrisonburg,   search_term: fence}
+  - {state: va, city: blacksburg,   search_term: fence}
+
+utah:
+  - {state: ut, city: cottonwood_heights, search_term: fence}
+  - {state: ut, city: south_jordan,       search_term: fence}
+  - {state: ut, city: herriman,           search_term: fence}
+  - {state: ut, city: sandy,              search_term: fence}
+
+california:
+  - {state: ca, city: san_diego,      search_term: fence}
+  - {state: ca, city: sacramento,     search_term: fence}
+  - {state: ca, city: san_jose,       search_term: fence}
+  - {state: ca, city: oakland,        search_term: fence}
+  - {state: ca, city: fresno,         search_term: fence}

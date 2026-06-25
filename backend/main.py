@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+
 from compliance.agent import check_compliance
 from compliance.schemas import FenceSpec, ComplianceReport
 
@@ -28,11 +29,35 @@ app.add_middleware(
 )
 
 
+MATERIAL_MAP = {
+    "wood_privacy": ("wood", 0),
+    "vinyl_privacy": ("vinyl", 0),
+    "chain_link": ("chain link", 90),
+    "aluminum": ("aluminum", 70),
+    "split_rail": ("wood", 70),
+}
+
+
+def estimate_request_to_fence_spec(request: EstimateRequest) -> FenceSpec:
+    material, pct_open = MATERIAL_MAP.get(request.fence_type, ("wood", 0))
+
+    return FenceSpec(
+        height_ft=request.height_ft,
+        location=request.yard_location,
+        material=material,
+        pct_open=pct_open,
+        address=request.address,
+    )
+
+
 @app.get("/")
 def root():
     return {
         "message": "FenceScope AI is running",
-        "workflow": "estimate intake, map measurement, pricing, risk review, proposal generation, and human review status",
+        "workflow": (
+            "estimate intake, map measurement, compliance pre-check, pricing, "
+            "risk review, proposal generation, and human review status"
+        ),
     }
 
 
@@ -42,6 +67,7 @@ def address_search(q: str = Query(..., min_length=3)):
         "query": q,
         "results": search_address(q),
     }
+
 
 @app.get("/address/autocomplete")
 def address_autocomplete(q: str = Query(..., min_length=2)):
@@ -57,10 +83,41 @@ def address_place(place_id: str = Query(..., min_length=3)):
         "place": get_place_details(place_id),
     }
 
+
 @app.post("/compliance/check", response_model=ComplianceReport)
 def compliance_check(spec: FenceSpec):
     return check_compliance(spec)
 
+
+@app.post("/precheck", response_model=ComplianceReport)
+def precheck_estimate_request(request: EstimateRequest):
+    """
+    Runs compliance before pricing or database save.
+    This endpoint is for the user-facing workflow step.
+    """
+    spec = estimate_request_to_fence_spec(request)
+    return check_compliance(spec)
+
+
 @app.post("/estimate", response_model=EstimateResult)
 def create_estimate(request: EstimateRequest):
+    """
+    Final estimate endpoint.
+
+    Important:
+    This endpoint also runs compliance as a backend guard. The frontend should
+    call /precheck first, but the backend must still protect the workflow.
+    """
+    spec = estimate_request_to_fence_spec(request)
+    compliance_report = check_compliance(spec)
+
+    if compliance_report.overall == "FAIL":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Cannot generate estimate because compliance pre-check failed.",
+                "compliance": compliance_report.model_dump(),
+            },
+        )
+
     return run_estimate_workflow(request)

@@ -1,3 +1,4 @@
+import json
 import math
 
 import folium
@@ -14,6 +15,7 @@ from backend.storage import create_customer, get_all_customers
 
 
 API_URL = "http://127.0.0.1:8000/estimate"
+PRECHECK_URL = "http://127.0.0.1:8000/precheck"
 ADDRESS_AUTOCOMPLETE_URL = "http://127.0.0.1:8000/address/autocomplete"
 ADDRESS_PLACE_URL = "http://127.0.0.1:8000/address/place"
 
@@ -154,6 +156,32 @@ def initialize_session_state():
     if "last_selected_prediction" not in st.session_state:
         st.session_state.last_selected_prediction = None
 
+    if "compliance_report" not in st.session_state:
+        st.session_state.compliance_report = None
+
+    if "compliance_checked" not in st.session_state:
+        st.session_state.compliance_checked = False
+
+    if "compliance_passed_or_review" not in st.session_state:
+        st.session_state.compliance_passed_or_review = False
+
+    if "estimate_result" not in st.session_state:
+        st.session_state.estimate_result = None
+
+    if "last_payload_fingerprint" not in st.session_state:
+        st.session_state.last_payload_fingerprint = None
+
+    if "latest_saved_customer" not in st.session_state:
+        st.session_state.latest_saved_customer = None
+
+
+def reset_workflow_state():
+    st.session_state.compliance_report = None
+    st.session_state.compliance_checked = False
+    st.session_state.compliance_passed_or_review = False
+    st.session_state.estimate_result = None
+    st.session_state.latest_saved_customer = None
+
 
 def render_sidebar():
     with st.sidebar:
@@ -161,11 +189,12 @@ def render_sidebar():
         st.write(
             """
             1. Capture customer details  
-            2. Start typing and select property address  
-            3. Draw proposed fence line on satellite map  
-            4. Generate estimate  
-            5. Review risks, missing questions, and proposal  
-            6. Approve, revise, or schedule a site visit
+            2. Select property address  
+            3. Draw or enter fence measurement  
+            4. Run compliance pre-check  
+            5. Generate estimate only if allowed  
+            6. Review estimate internally  
+            7. Send customer-safe follow-up
             """
         )
 
@@ -176,9 +205,10 @@ def render_sidebar():
             """
             **Address autocomplete:** Finds property location  
             **Map:** Measures linear footage  
+            **Compliance agent:** Checks local fence code first  
             **Pricing engine:** Calculates price deterministically  
             **Risk agent:** Reviews risks and missing info  
-            **Proposal agent:** Drafts customer and internal notes  
+            **Proposal agent:** Drafts internal proposal copy  
             **Human review:** Controls final action
             """
         )
@@ -188,6 +218,142 @@ def render_sidebar():
         st.caption(
             "Prototype role switcher. In production, this would use authentication, permissions, and audit logs."
         )
+
+
+def render_compliance_report(report):
+    verdict = report["overall"]
+    jurisdiction = report.get("jurisdiction") or "jurisdiction not covered"
+
+    if verdict == "PASS":
+        st.success(f"Compliance: {verdict} - {jurisdiction}")
+    elif verdict == "FAIL":
+        st.error(f"Compliance: {verdict} - {jurisdiction}")
+    else:
+        st.warning(f"Compliance: {verdict} - {jurisdiction}")
+
+    if report.get("summary"):
+        st.write(report["summary"])
+
+    for finding in report.get("findings", []):
+        icon = {
+            "pass": "✅",
+            "fail": "❌",
+            "needs_review": "⚠️",
+        }.get(finding["status"], "⚠️")
+
+        with st.expander(
+            f"{icon} {finding['rule_id']}  (confidence {finding['confidence']})"
+        ):
+            st.write(finding["explanation"])
+
+            if finding.get("verbatim_text"):
+                st.markdown(f"> {finding['verbatim_text']}")
+
+            if finding.get("source_url"):
+                st.markdown(f"[View ordinance source]({finding['source_url']})")
+
+    if report.get("disclaimer"):
+        st.caption(report["disclaimer"])
+
+
+def render_failed_compliance_guidance(report):
+    failed_rule_ids = [
+        finding["rule_id"]
+        for finding in report.get("findings", [])
+        if finding.get("status") == "fail"
+    ]
+
+    st.error(
+        "This request cannot be estimated as entered. Please adjust the highlighted fields before generating an estimate."
+    )
+
+    if "fence-height-front-yard" in failed_rule_ids:
+        st.warning(
+            "Field to fix: Fence height. Front-yard fences in this jurisdiction cannot exceed four feet."
+        )
+
+    if "fence-location-sight-triangle" in failed_rule_ids:
+        st.warning(
+            "Field to review: Yard location. Front-yard or street-facing fences may affect visibility and sight-triangle rules."
+        )
+
+    if not failed_rule_ids:
+        st.warning(
+            "The compliance checker found a blocking issue. Review the selected fence height, yard location, material, and property address."
+        )
+
+
+def render_estimate_summary(result):
+    st.subheader("Estimate Summary")
+
+    metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
+
+    with metric_col1:
+        st.metric("Estimated Total", f"${result['estimated_total']:,.2f}")
+
+    with metric_col2:
+        st.metric("Low Range", f"${result['low_range']:,.2f}")
+
+    with metric_col3:
+        st.metric("High Range", f"${result['high_range']:,.2f}")
+
+    with metric_col4:
+        st.metric("Confidence", result["confidence_score"])
+
+    status = result["status"].replace("_", " ").title()
+
+    if result["status"] == "ready_to_send":
+        st.success(f"Status: {status}")
+    elif result["status"] in ["needs_customer_info", "needs_estimator_review"]:
+        st.warning(f"Status: {status}")
+    else:
+        st.error(f"Status: {status}")
+
+    st.info(
+        "This is a preliminary estimate. A representative will review the project details before a final quote is issued."
+    )
+
+    st.divider()
+
+    left_col, right_col = st.columns([1, 1])
+
+    with left_col:
+        st.subheader("Line Items")
+
+        line_items_df = pd.DataFrame(result["line_items"])
+        st.dataframe(line_items_df, use_container_width=True)
+
+        st.subheader("Risk Flags")
+
+        if result["risk_flags"]:
+            for risk in result["risk_flags"]:
+                severity = risk["severity"].upper()
+                st.markdown(
+                    f"""
+                    **{risk['risk_type'].replace('_', ' ').title()}**  
+                    Severity: `{severity}`  
+                    {risk['explanation']}  
+                    Recommended action: {risk['recommended_action']}
+                    """
+                )
+        else:
+            st.write("No major risks flagged.")
+
+    with right_col:
+        st.subheader("Missing Questions")
+
+        if result["missing_questions"]:
+            for question in result["missing_questions"]:
+                st.write(f"- {question}")
+        else:
+            st.write("No missing questions.")
+
+    st.divider()
+
+    st.subheader("Customer Next Step")
+    st.write(
+        "A representative will contact the customer to confirm any missing details, review compliance requirements, and finalize the quote."
+    )
 
 
 def render_user_view():
@@ -231,6 +397,7 @@ def render_user_view():
     if selected_prediction and selected_prediction != st.session_state.last_selected_prediction:
         st.session_state.last_selected_prediction = selected_prediction
         load_selected_place(selected_prediction)
+        reset_workflow_state()
         st.success("Address selected. Map center updated.")
         st.rerun()
 
@@ -349,6 +516,7 @@ def render_user_view():
         if st.button("Update Map Center Manually"):
             st.session_state.map_lat = manual_map_lat
             st.session_state.map_lng = manual_map_lng
+            reset_workflow_state()
             st.rerun()
 
         st.caption(
@@ -427,66 +595,159 @@ def render_user_view():
     st.divider()
 
     # -----------------------------
-    # Estimate Workflow
+    # Shared Payload
     # -----------------------------
 
-    st.subheader("4. Generate Estimate")
+    payload = {
+        "customer_name": customer_name,
+        "customer_email": customer_email,
+        "customer_phone": customer_phone,
+        "address": selected_address,
+        "property_lat": st.session_state.map_lat,
+        "property_lng": st.session_state.map_lng,
+        "fence_type": fence_type,
+        "height_ft": height_ft,
+        "linear_feet": final_linear_feet,
+        "yard_location": yard_location,
+        "gate_count": gate_count,
+        "double_gate_count": double_gate_count,
+        "old_fence_removal": old_fence_removal,
+        "difficult_access": difficult_access,
+        "slope_present": slope_present,
+        "customer_notes": customer_notes,
+    }
 
-    if st.button("Generate Estimate", type="primary"):
+    payload_fingerprint = json.dumps(payload, sort_keys=True)
+
+    if (
+        st.session_state.last_payload_fingerprint is not None
+        and st.session_state.last_payload_fingerprint != payload_fingerprint
+    ):
+        reset_workflow_state()
+        st.session_state.last_payload_fingerprint = payload_fingerprint
+        st.info("Project details changed. Please run the compliance pre-check again.")
+
+    if st.session_state.last_payload_fingerprint is None:
+        st.session_state.last_payload_fingerprint = payload_fingerprint
+
+    # -----------------------------
+    # Compliance Pre-Check
+    # -----------------------------
+
+    st.subheader("4. Fence Code Compliance Pre-Check")
+
+    st.caption(
+        "FenceScope checks local fence rules before pricing so non-compliant requests are not quoted automatically."
+    )
+
+    if st.button("Check Compliance", type="primary"):
         if not customer_name or not customer_email or not customer_phone or not selected_address:
             st.error("Customer name, email, phone number, and property address are required.")
             st.stop()
 
-        payload = {
-            "customer_name": customer_name,
-            "customer_email": customer_email,
-            "customer_phone": customer_phone,
-            "address": selected_address,
-            "property_lat": st.session_state.map_lat,
-            "property_lng": st.session_state.map_lng,
-            "fence_type": fence_type,
-            "height_ft": height_ft,
-            "linear_feet": final_linear_feet,
-            "yard_location": yard_location,
-            "gate_count": gate_count,
-            "double_gate_count": double_gate_count,
-            "old_fence_removal": old_fence_removal,
-            "difficult_access": difficult_access,
-            "slope_present": slope_present,
-            "customer_notes": customer_notes,
-        }
-
-        with st.spinner("Running estimate workflow..."):
+        with st.spinner("Checking local fence code before generating estimate..."):
             try:
-                response = requests.post(API_URL, json=payload, timeout=90)
+                response = requests.post(PRECHECK_URL, json=payload, timeout=60)
             except requests.exceptions.RequestException as error:
-                st.error(f"Could not connect to backend: {error}")
+                st.error(f"Could not connect to compliance pre-check: {error}")
                 st.stop()
 
         if response.status_code != 200:
-            st.error("Backend returned an error.")
+            st.error("Compliance pre-check returned an error.")
             st.code(response.text)
             st.stop()
 
-        result = response.json()
+        report = response.json()
 
-        try:
-            customer = create_customer(
-                name=customer_name,
-                email=customer_email,
-                phone=customer_phone,
-                address=selected_address,
-            )
+        st.session_state.compliance_report = report
+        st.session_state.compliance_checked = True
+        st.session_state.compliance_passed_or_review = report["overall"] != "FAIL"
+        st.session_state.estimate_result = None
+        st.session_state.latest_saved_customer = None
+        st.session_state.last_payload_fingerprint = payload_fingerprint
 
-            st.success(
-                f"Estimate generated successfully. Customer saved with ID: {customer['id']}."
-            )
+    if st.session_state.compliance_checked and st.session_state.compliance_report:
+        render_compliance_report(st.session_state.compliance_report)
 
-        except Exception as error:
-            st.warning(
-                "Estimate was generated, but customer details could not be saved to Postgres."
-            )
-            st.exception(error)
+        if st.session_state.compliance_report["overall"] == "FAIL":
+            render_failed_compliance_guidance(st.session_state.compliance_report)
+
+    st.divider()
+
+    # -----------------------------
+    # Estimate Generation
+    # -----------------------------
+
+    st.subheader("5. Generate Estimate")
+
+    if not st.session_state.compliance_checked:
+        st.info("Run the compliance pre-check before generating an estimate.")
+        st.button("Generate Estimate", disabled=True)
+
+    elif not st.session_state.compliance_passed_or_review:
+        st.error("Estimate generation is blocked because the compliance pre-check failed.")
+        st.button("Generate Estimate", disabled=True)
+
+    else:
+        st.success("Compliance pre-check completed. Estimate generation is now available.")
+
+        if st.button("Generate Estimate", type="primary"):
+            with st.spinner("Running estimate workflow..."):
+                try:
+                    response = requests.post(API_URL, json=payload, timeout=90)
+                except requests.exceptions.RequestException as error:
+                    st.error(f"Could not connect to backend: {error}")
+                    st.stop()
+
+            if response.status_code != 200:
+                st.error("Estimate could not be generated.")
+                st.code(response.text)
+                st.stop()
+
+            result = response.json()
+            st.session_state.estimate_result = result
+
+            try:
+                customer = create_customer(
+                    name=customer_name,
+                    email=customer_email,
+                    phone=customer_phone,
+                    address=selected_address,
+                )
+
+                st.session_state.latest_saved_customer = customer
+
+                st.success(
+                    f"Estimate generated successfully. Customer saved with ID: {customer['id']}."
+                )
+
+            except Exception as error:
+                st.warning(
+                    "Estimate was generated, but customer details could not be saved to Postgres."
+                )
+                st.exception(error)
+
+    if st.session_state.estimate_result:
+        render_estimate_summary(st.session_state.estimate_result)
+
+
+def render_admin_view():
+    st.title("FenceScope AI Admin")
+    st.caption("Internal estimate operations dashboard for reviewing customer intake history.")
+
+    # -----------------------------
+    # Latest Estimate Review
+    # -----------------------------
+
+    st.subheader("Latest Estimate Review")
+
+    if st.session_state.get("estimate_result"):
+        result = st.session_state.estimate_result
+        compliance_report = st.session_state.get("compliance_report")
+        saved_customer = st.session_state.get("latest_saved_customer")
+
+        if saved_customer:
+            st.success(f"Latest saved customer ID: {saved_customer['id']}")
 
         metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
 
@@ -502,96 +763,69 @@ def render_user_view():
         with metric_col4:
             st.metric("Confidence", result["confidence_score"])
 
-        status = result["status"].replace("_", " ").title()
+        st.write(f"**Status:** {result['status'].replace('_', ' ').title()}")
 
-        if result["status"] == "ready_to_send":
-            st.success(f"Status: {status}")
-        elif result["status"] == "needs_customer_info":
-            st.warning(f"Status: {status}")
-        elif result["status"] == "needs_estimator_review":
-            st.warning(f"Status: {status}")
+        if compliance_report:
+            st.subheader("Compliance Report")
+            render_compliance_report(compliance_report)
+
+        st.subheader("Line Items")
+        st.dataframe(
+            pd.DataFrame(result["line_items"]),
+            use_container_width=True,
+        )
+
+        st.subheader("Risk Flags")
+
+        if result["risk_flags"]:
+            for risk in result["risk_flags"]:
+                severity = risk["severity"].upper()
+                st.markdown(
+                    f"""
+                    **{risk['risk_type'].replace('_', ' ').title()}**  
+                    Severity: `{severity}`  
+                    {risk['explanation']}  
+                    Recommended action: {risk['recommended_action']}
+                    """
+                )
         else:
-            st.error(f"Status: {status}")
+            st.write("No major risks flagged.")
 
-        st.divider()
+        st.subheader("Missing Questions")
 
-        left_col, right_col = st.columns([1, 1])
+        if result["missing_questions"]:
+            for question in result["missing_questions"]:
+                st.write(f"- {question}")
+        else:
+            st.write("No missing questions.")
 
-        with left_col:
-            st.subheader("Line Items")
-
-            line_items_df = pd.DataFrame(result["line_items"])
-            st.dataframe(line_items_df, use_container_width=True)
-
-            st.subheader("Risk Flags")
-
-            if result["risk_flags"]:
-                for risk in result["risk_flags"]:
-                    severity = risk["severity"].upper()
-                    st.markdown(
-                        f"""
-                        **{risk['risk_type'].replace('_', ' ').title()}**  
-                        Severity: `{severity}`  
-                        {risk['explanation']}  
-                        Recommended action: {risk['recommended_action']}
-                        """
-                    )
-            else:
-                st.write("No major risks flagged.")
-
-        with right_col:
-            st.subheader("Missing Questions")
-
-            if result["missing_questions"]:
-                for question in result["missing_questions"]:
-                    st.write(f"- {question}")
-            else:
-                st.write("No missing questions.")
-
-            st.subheader("Internal Estimator Notes")
-            st.text_area(
-                "Internal notes",
-                value=result["internal_notes"],
-                height=300,
-            )
-
-        st.divider()
+        st.subheader("Internal Estimator Notes")
+        st.text_area(
+            "Internal notes",
+            value=result.get("internal_notes", ""),
+            height=300,
+        )
 
         st.subheader("Customer Proposal Draft")
-
         st.text_area(
-            "Proposal",
-            value=result["customer_proposal"],
+            "Proposal draft",
+            value=result.get("customer_proposal", ""),
             height=350,
         )
 
-        st.divider()
-
-        st.subheader("Human Review Actions")
-
-        review_col1, review_col2, review_col3 = st.columns(3)
-
-        with review_col1:
-            st.button(
-                "Approve Draft",
-                disabled=result["status"] != "ready_to_send",
-            )
-
-        with review_col2:
-            st.button("Request Customer Info")
-
-        with review_col3:
-            st.button("Schedule Site Visit")
-
-        st.divider()
-
-        with st.expander("Raw structured output"):
+        with st.expander("Raw structured estimate output"):
             st.json(result)
 
+    else:
+        st.info(
+            "No estimate has been generated in this session yet. Generate an estimate from User View, then return here for review."
+        )
 
-def render_admin_view():
-    st.title("FenceScope AI Admin")
-    st.caption("Internal estimate operations dashboard for reviewing customer intake history.")
+    st.divider()
+
+    # -----------------------------
+    # Customer History
+    # -----------------------------
 
     st.subheader("Customer History")
 

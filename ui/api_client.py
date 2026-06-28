@@ -9,6 +9,7 @@ from ui.config import (
     ESTIMATES_URL,
     ADDRESS_AUTOCOMPLETE_URL,
     ADDRESS_PLACE_URL,
+    INTAKE_ANALYZE_TEXT_URL,
     EMAIL_SUMMARY_URL,
     ADMIN_DECISION_URL,
     ADMIN_PROPOSAL_EMAIL_URL,
@@ -93,6 +94,26 @@ def generate_estimate(payload: dict) -> dict:
     """
     response = requests.post(
         API_URL,
+        json=payload,
+        timeout=90,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+# ---------------------------------------------------------
+# Unstructured intake API calls
+# ---------------------------------------------------------
+
+def analyze_text_intake_request(payload: dict) -> dict:
+    """
+    Sends customer-written project description to the backend LLM intake agent.
+
+    This endpoint does not create an estimate.
+    It only classifies, extracts fields, finds missing info, and returns a structured draft.
+    """
+    response = requests.post(
+        INTAKE_ANALYZE_TEXT_URL,
         json=payload,
         timeout=90,
     )

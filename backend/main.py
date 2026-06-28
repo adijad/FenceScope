@@ -26,11 +26,14 @@ from backend.models import (
     MissingQuestionsResult,
     EstimateEmailRequest,
     YardSection,
+    IntakeTextRequest,
+    IntakeAnalysisResult,
 )
 from backend.email_service import send_estimate_summary_email
 from backend.risk_agent import analyze_risks
 from backend.storage import create_customer, create_estimate, get_all_estimates
 from backend.workflow import run_estimate_workflow
+from backend.intake_agent import analyze_text_intake
 
 
 load_dotenv()
@@ -272,6 +275,22 @@ def address_place(place_id: str = Query(..., min_length=3)):
     return {
         "place": get_place_details(place_id),
     }
+
+
+@app.post("/intake/analyze-text", response_model=IntakeAnalysisResult)
+def analyze_intake_text(request: IntakeTextRequest):
+    """
+    Guardrailed LLM intake endpoint.
+
+    This endpoint:
+    1. Classifies whether the text is a fence quote request.
+    2. Extracts structured fields from messy customer language.
+    3. Identifies missing details and risk hints.
+    4. Does not price the job.
+    5. Does not save anything.
+    6. Does not create an estimate automatically.
+    """
+    return analyze_text_intake(request)
 
 
 @app.post("/questions", response_model=MissingQuestionsResult)

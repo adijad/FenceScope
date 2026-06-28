@@ -63,19 +63,143 @@ def _safe_float(value, default=0.0):
         return default
 
 
+def _safe_int(value, default=0):
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _safe_bool(value, default=False):
+    if value is None:
+        return default
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        return value.strip().lower() in ["true", "yes", "1"]
+
+    return bool(value)
+
+
+def _valid_option(value, options):
+    if value in options:
+        return value
+
+    return None
+
+
 def _get_map_context(customer_property_context: dict) -> dict:
     return customer_property_context.get("map_context") or {}
 
 
+def _get_prefilled_fields() -> dict:
+    return st.session_state.get("prefilled_fields") or {}
+
+
 def _get_shared_linear_feet(customer_property_context: dict) -> float:
+    prefilled = _get_prefilled_fields()
     map_context = _get_map_context(customer_property_context)
 
     return _safe_float(
-        map_context.get("final_linear_feet")
+        prefilled.get("linear_feet")
+        or map_context.get("final_linear_feet")
         or map_context.get("fallback_linear_feet")
         or 186.0,
         default=186.0,
     )
+
+
+def _index_for_option(options: list[str], value, default_index: int = 0) -> int:
+    if value in options:
+        return options.index(value)
+
+    return default_index
+
+
+def _apply_guided_form_prefill_defaults():
+    """
+    Applies description-intake extracted fields to Streamlit widget state.
+
+    This runs before widgets are rendered. The user can still edit every field.
+    """
+    prefilled = _get_prefilled_fields()
+
+    if not prefilled:
+        return
+
+    if st.session_state.get("guided_form_prefill_applied"):
+        return
+
+    fence_type = _valid_option(prefilled.get("fence_type"), FENCE_TYPE_OPTIONS)
+    if fence_type:
+        st.session_state["fence_type"] = fence_type
+
+    material_grade = _valid_option(prefilled.get("material_grade"), MATERIAL_GRADE_OPTIONS)
+    if material_grade:
+        st.session_state["material_grade"] = material_grade
+
+    gate_hardware = _valid_option(prefilled.get("gate_hardware"), GATE_HARDWARE_OPTIONS)
+    if gate_hardware:
+        st.session_state["gate_hardware"] = gate_hardware
+
+    access_level = _valid_option(prefilled.get("access_level"), ACCESS_LEVEL_OPTIONS)
+    if access_level:
+        st.session_state["access_level"] = access_level
+
+    slope_severity = _valid_option(prefilled.get("slope_severity"), SLOPE_SEVERITY_OPTIONS)
+    if slope_severity:
+        st.session_state["slope_severity"] = slope_severity
+    elif prefilled.get("slope_present") is True:
+        st.session_state["slope_severity"] = "slight"
+
+    brush_clearing = _valid_option(prefilled.get("brush_clearing"), BRUSH_CLEARING_OPTIONS)
+    if brush_clearing:
+        st.session_state["brush_clearing"] = brush_clearing
+
+    if prefilled.get("height_ft") is not None:
+        st.session_state["height_ft"] = _safe_int(prefilled.get("height_ft"), 6)
+
+    if prefilled.get("linear_feet") is not None:
+        st.session_state["linear_feet_for_estimate"] = _safe_float(
+            prefilled.get("linear_feet"),
+            186.0,
+        )
+
+    if prefilled.get("gate_count") is not None:
+        st.session_state["gate_count"] = _safe_int(prefilled.get("gate_count"), 0)
+
+    if prefilled.get("double_gate_count") is not None:
+        st.session_state["double_gate_count"] = _safe_int(
+            prefilled.get("double_gate_count"),
+            0,
+        )
+
+    if prefilled.get("old_fence_removal") is not None:
+        st.session_state["old_fence_removal"] = _safe_bool(
+            prefilled.get("old_fence_removal"),
+            False,
+        )
+
+    if prefilled.get("stain_seal") is not None:
+        st.session_state["stain_seal"] = _safe_bool(
+            prefilled.get("stain_seal"),
+            False,
+        )
+
+    if prefilled.get("permit_admin") is not None:
+        st.session_state["permit_admin"] = _safe_bool(
+            prefilled.get("permit_admin"),
+            False,
+        )
+
+    if prefilled.get("customer_notes"):
+        st.session_state["customer_notes"] = prefilled.get("customer_notes")
+
+    st.session_state.guided_form_prefill_applied = True
 
 
 def _set_payload_fingerprint(payload: dict):
@@ -97,6 +221,19 @@ def _set_payload_fingerprint(payload: dict):
 
     if st.session_state.last_payload_fingerprint is None:
         st.session_state.last_payload_fingerprint = payload_fingerprint
+
+
+def render_prefill_notice():
+    prefilled = _get_prefilled_fields()
+
+    if not prefilled:
+        return
+
+    with st.container(border=True):
+        st.success("Guided form prefilled from your project description.")
+        st.caption(
+            "Review these details before starting the estimate review. You can edit anything below."
+        )
 
 
 def render_map_measurement_summary(customer_property_context: dict):
@@ -132,28 +269,41 @@ def render_job_details(customer_property_context: dict):
     """
     Renders only the structured fence/job details.
 
-    Customer details, address selection, and map drawing are now handled by
-    property_setup.py.
+    Customer details, address selection, and map drawing are handled by property_setup.py.
     """
 
+    _apply_guided_form_prefill_defaults()
+
+    prefilled = _get_prefilled_fields()
     shared_linear_feet = _get_shared_linear_feet(customer_property_context)
 
+    render_prefill_notice()
     render_map_measurement_summary(customer_property_context)
 
     job_col1, job_col2 = st.columns(2)
 
     with job_col1:
+        fence_type_default = st.session_state.get(
+            "fence_type",
+            prefilled.get("fence_type") or "wood_privacy",
+        )
+
         fence_type = st.selectbox(
             "Fence type",
             FENCE_TYPE_OPTIONS,
-            index=0,
+            index=_index_for_option(FENCE_TYPE_OPTIONS, fence_type_default, 0),
             key="fence_type",
+        )
+
+        material_grade_default = st.session_state.get(
+            "material_grade",
+            prefilled.get("material_grade") or "standard",
         )
 
         material_grade = st.selectbox(
             "Material grade",
             MATERIAL_GRADE_OPTIONS,
-            index=1,
+            index=_index_for_option(MATERIAL_GRADE_OPTIONS, material_grade_default, 1),
             help="Adjusts the per-foot material/install rate.",
             key="material_grade",
         )
@@ -162,7 +312,7 @@ def render_job_details(customer_property_context: dict):
             "Default fence height",
             min_value=3,
             max_value=10,
-            value=6,
+            value=_safe_int(st.session_state.get("height_ft", prefilled.get("height_ft") or 6), 6),
             step=1,
             help="Used as the default height for yard sections below.",
             key="height_ft",
@@ -171,26 +321,34 @@ def render_job_details(customer_property_context: dict):
         linear_feet_for_estimate = st.number_input(
             "Fence length for estimate",
             min_value=1.0,
-            value=float(shared_linear_feet),
+            value=_safe_float(
+                st.session_state.get("linear_feet_for_estimate", shared_linear_feet),
+                shared_linear_feet,
+            ),
             step=1.0,
             key="linear_feet_for_estimate",
             help=(
-                "This defaults to the map measurement when available. "
+                "This defaults to the map measurement or the value extracted from the project description. "
                 "You can adjust it before generating the estimate."
             ),
         )
 
         stain_seal = st.checkbox(
             "Add stain/seal option",
-            value=False,
+            value=_safe_bool(st.session_state.get("stain_seal", prefilled.get("stain_seal")), False),
             help="Adds a per-foot stain or seal add-on.",
             key="stain_seal",
+        )
+
+        access_level_default = st.session_state.get(
+            "access_level",
+            prefilled.get("access_level") or "easy",
         )
 
         access_level = st.selectbox(
             "Access level",
             ACCESS_LEVEL_OPTIONS,
-            index=0,
+            index=_index_for_option(ACCESS_LEVEL_OPTIONS, access_level_default, 0),
             help="Adds a complexity adjustment for limited crew/material access.",
             key="access_level",
         )
@@ -199,7 +357,7 @@ def render_job_details(customer_property_context: dict):
         gate_count = st.number_input(
             "Walk gates",
             min_value=0,
-            value=2,
+            value=_safe_int(st.session_state.get("gate_count", prefilled.get("gate_count") or 2), 2),
             step=1,
             key="gate_count",
         )
@@ -207,22 +365,36 @@ def render_job_details(customer_property_context: dict):
         double_gate_count = st.number_input(
             "Double gates",
             min_value=0,
-            value=0,
+            value=_safe_int(
+                st.session_state.get("double_gate_count", prefilled.get("double_gate_count") or 0),
+                0,
+            ),
             step=1,
             key="double_gate_count",
+        )
+
+        gate_hardware_default = st.session_state.get(
+            "gate_hardware",
+            prefilled.get("gate_hardware") or "standard",
         )
 
         gate_hardware = st.selectbox(
             "Gate hardware",
             GATE_HARDWARE_OPTIONS,
-            index=0,
+            index=_index_for_option(GATE_HARDWARE_OPTIONS, gate_hardware_default, 0),
             help="Adds hardware upgrade cost per gate.",
             key="gate_hardware",
         )
 
         old_fence_removal = st.checkbox(
             "Old fence removal required",
-            value=True,
+            value=_safe_bool(
+                st.session_state.get(
+                    "old_fence_removal",
+                    prefilled.get("old_fence_removal"),
+                ),
+                True,
+            ),
             key="old_fence_removal",
         )
 
@@ -232,7 +404,10 @@ def render_job_details(customer_property_context: dict):
             removal_length_feet = st.number_input(
                 "Approx. old fence removal length",
                 min_value=0.0,
-                value=float(linear_feet_for_estimate),
+                value=_safe_float(
+                    st.session_state.get("removal_length_feet", linear_feet_for_estimate),
+                    linear_feet_for_estimate,
+                ),
                 step=1.0,
                 help=(
                     "Use 0 if unknown. The pricing engine will fall back to total fence length."
@@ -240,24 +415,34 @@ def render_job_details(customer_property_context: dict):
                 key="removal_length_feet",
             )
 
+        slope_severity_default = st.session_state.get(
+            "slope_severity",
+            prefilled.get("slope_severity") or "moderate",
+        )
+
         slope_severity = st.selectbox(
             "Slope severity",
             SLOPE_SEVERITY_OPTIONS,
-            index=2,
+            index=_index_for_option(SLOPE_SEVERITY_OPTIONS, slope_severity_default, 2),
             help="Adds a complexity adjustment based on slope.",
             key="slope_severity",
+        )
+
+        brush_clearing_default = st.session_state.get(
+            "brush_clearing",
+            prefilled.get("brush_clearing") or "none",
         )
 
         brush_clearing = st.selectbox(
             "Brush / obstruction clearing",
             BRUSH_CLEARING_OPTIONS,
-            index=0,
+            index=_index_for_option(BRUSH_CLEARING_OPTIONS, brush_clearing_default, 0),
             key="brush_clearing",
         )
 
         permit_admin = st.checkbox(
             "Permit / HOA admin support",
-            value=False,
+            value=_safe_bool(st.session_state.get("permit_admin", prefilled.get("permit_admin")), False),
             help="Adds a fixed admin support line item.",
             key="permit_admin",
         )
@@ -265,13 +450,18 @@ def render_job_details(customer_property_context: dict):
     difficult_access = access_level in ["limited", "difficult"]
     slope_present = slope_severity != "none"
 
+    default_notes = (
+        "Backyard slopes slightly. HOA neighborhood. We have two dogs and an old "
+        "chain link fence that needs to be removed. Wants quote quickly."
+    )
+
     customer_notes = st.text_area(
         "Customer / property notes",
-        value=(
-            "Backyard slopes slightly. HOA neighborhood. We have two dogs and an old "
-            "chain link fence that needs to be removed. Wants quote quickly."
+        value=st.session_state.get(
+            "customer_notes",
+            prefilled.get("customer_notes") or default_notes,
         ),
-        height=120,
+        height=140,
         key="customer_notes",
     )
 
@@ -350,14 +540,6 @@ def render_guided_form_payload(customer_property_context: dict | None = None):
         "customer_notes": raw customer notes before gate-plan notes,
         "drawn_feet": map measurement if available
     }
-
-    Backward-compatible behavior:
-    - If customer_property_context is not passed, this function renders the
-      customer/property/map setup itself.
-
-    Future behavior:
-    - user_page.py will render property_setup.py first, then pass the shared
-      context into this function.
     """
 
     if customer_property_context is None:

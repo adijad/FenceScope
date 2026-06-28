@@ -2,6 +2,7 @@
 
 import streamlit as st
 
+from ui.components.description_intake import render_description_intake
 from ui.components.guided_form import render_guided_form_payload
 from ui.components.intake_choice import (
     DESCRIPTION_MODE,
@@ -30,64 +31,6 @@ def render_welcome_step():
         st.session_state.intake_mode = None
         st.rerun()
 
-
-def render_description_placeholder(customer_property_context: dict):
-    st.subheader("Project Description Intake")
-
-    st.info(
-        "This path is ready structurally. Next, we will connect it to a guardrailed LLM intake agent."
-    )
-
-    st.write("The description agent will receive this shared context:")
-
-    context_preview = {
-        "customer_name": customer_property_context.get("customer_name"),
-        "customer_email": customer_property_context.get("customer_email"),
-        "customer_phone": customer_property_context.get("customer_phone"),
-        "address": customer_property_context.get("selected_address"),
-        "property_lat": customer_property_context.get("property_lat"),
-        "property_lng": customer_property_context.get("property_lng"),
-        "map_linear_feet": (
-            customer_property_context.get("map_context", {}).get("final_linear_feet")
-        ),
-        "gate_markers": (
-            len(customer_property_context.get("map_context", {}).get("gate_points", []))
-        ),
-    }
-
-    st.json(context_preview)
-
-    raw_description = st.text_area(
-        "Describe your fence project",
-        value=st.session_state.get("raw_project_description", ""),
-        height=180,
-        placeholder=(
-            "Example: I want a 6 ft wood privacy fence around my backyard. "
-            "We have two dogs, need one walk gate, and there is an old chain link fence "
-            "that may need to be removed."
-        ),
-        key="description_intake_text_area",
-    )
-
-    st.session_state.raw_project_description = raw_description
-
-    st.caption(
-        "For now, this only captures the description. The next step will send it to the backend LLM intake endpoint."
-    )
-
-    col1, col2 = st.columns([1, 2])
-
-    with col1:
-        if st.button("Continue with guided form instead", key="description_to_guided_form"):
-            st.session_state.intake_mode = GUIDED_FORM_MODE
-            st.rerun()
-
-    with col2:
-        st.caption(
-            "The LLM will not create an estimate directly. It will extract a draft, show missing details, and then route back into the guided estimate review."
-        )
-
-
 def render_user_view():
     if not st.session_state.get("user_started"):
         render_welcome_step()
@@ -96,7 +39,7 @@ def render_user_view():
     st.title("FenceScope AI")
 
     st.caption(
-        "AI-assisted estimate triage and proposal workflow for residential fencing companies."
+        "Your AI-assisted fence estimator."
     )
 
     customer_property_context = render_customer_property_setup()
@@ -124,7 +67,7 @@ def render_user_view():
         return
 
     if intake_mode == DESCRIPTION_MODE:
-        render_description_placeholder(customer_property_context)
+        render_description_intake(customer_property_context)
         return
 
     st.warning("Unknown intake mode selected. Please choose an estimate path again.")

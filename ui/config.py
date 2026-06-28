@@ -12,6 +12,8 @@ ESTIMATES_URL = f"{API_BASE_URL}/estimates"
 ADDRESS_AUTOCOMPLETE_URL = f"{API_BASE_URL}/address/autocomplete"
 ADDRESS_PLACE_URL = f"{API_BASE_URL}/address/place"
 
+INTAKE_ANALYZE_TEXT_URL = f"{API_BASE_URL}/intake/analyze-text"
+
 EMAIL_SUMMARY_URL = f"{API_BASE_URL}/email/estimate-summary"
 ADMIN_DECISION_URL = f"{API_BASE_URL}/estimates/{{estimate_id}}/admin-decision"
 ADMIN_PROPOSAL_EMAIL_URL = f"{API_BASE_URL}/email/admin-approved-proposal"

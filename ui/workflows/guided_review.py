@@ -107,7 +107,7 @@ def validate_required_inputs(payload):
     return missing
 
 
-def start_guided_review(payload, customer_notes):
+def start_guided_review(payload, customer_notes, skip_missing_questions=False):
     reset_guided_review_state()
 
     missing_required = validate_required_inputs(payload)
@@ -146,6 +146,16 @@ def start_guided_review(payload, customer_notes):
     if report["overall"] == "FAIL":
         st.session_state.workflow_stage = "compliance_failed"
         add_workflow_log("Estimate generation blocked because compliance failed.")
+        return
+
+    if skip_missing_questions:
+        st.session_state.questions_checked = True
+        st.session_state.missing_questions = []
+        add_workflow_log(
+            "Description intake already collected follow-up answers. "
+            "Skipping duplicate customer questionnaire."
+        )
+        finalize_guided_estimate(payload, customer_notes)
         return
 
     st.session_state.workflow_stage = "generating_questions"
@@ -336,22 +346,37 @@ def render_single_question_card(payload, customer_notes):
         st.caption("Your answers help the estimator avoid quoting with missing project details.")
 
 
-def render_guided_estimate_workflow(payload, customer_notes):
-    st.subheader("4. Guided Estimate Review")
+def render_guided_estimate_workflow(
+    payload,
+    customer_notes,
+    skip_missing_questions=False,
+    section_title="4. Guided Estimate Review",
+    intro_copy=None,
+    start_button_label="Start Estimate Review",
+):
+    st.subheader(section_title)
 
     with st.container(border=True):
         stage = st.session_state.workflow_stage
 
         if stage == "idle":
-            st.markdown("### Ready to review your fence project?")
-            st.write(
-                "FenceScope will check local fence-code rules across the selected yard sections, "
-                "collect any missing details, generate the estimate, and save it for admin review."
-            )
+            st.markdown("### Ready to continue?")
 
-            if st.button("Start Estimate Review", type="primary"):
+            if intro_copy:
+                st.write(intro_copy)
+            else:
+                st.write(
+                    "FenceScope will check local fence-code rules across the selected yard sections, "
+                    "collect any missing details, generate the estimate, and save it for admin review."
+                )
+
+            if st.button(start_button_label, type="primary"):
                 with st.spinner("Starting estimate review..."):
-                    start_guided_review(payload, customer_notes)
+                    start_guided_review(
+                        payload,
+                        customer_notes,
+                        skip_missing_questions=skip_missing_questions,
+                    )
                 st.rerun()
 
             return

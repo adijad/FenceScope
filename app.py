@@ -11,6 +11,7 @@ from ui.pages.admin_login_page import render_admin_login
 from ui.pages.admin_page import render_admin_view
 from ui.pages.user_page import render_user_view
 from ui.state import initialize_session_state
+from ui.theme import inject_global_styles
 
 
 def main():
@@ -20,6 +21,7 @@ def main():
         layout="wide",
     )
 
+    inject_global_styles()
     init_db()
     initialize_session_state()
     initialize_auth_state()

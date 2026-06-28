@@ -13,18 +13,18 @@ from ui.components.intake_choice import (
 )
 from ui.components.property_setup import render_customer_property_setup
 from ui.workflows.guided_review import render_guided_estimate_workflow
+from ui.theme import render_hero, render_stepper, render_workflow_pipeline
 
 
 def render_welcome_step():
-    st.title("Welcome to FenceScope AI")
-
-    st.caption("Your AI-assisted fence estimator.")
+    render_hero()
+    render_stepper("property")
 
     st.markdown(
         """
-        Start by entering your customer and property details. After the address is selected, 
-        you will be able to confirm the property on a map, optionally draw the fence layout, 
-        and then choose how you want to continue.
+        Start by entering your customer and property details. After the address is selected,
+        you can confirm the property on a map, optionally draw the fence layout, and choose
+        how you want to provide project details.
         """
     )
 
@@ -44,18 +44,22 @@ def render_user_view():
         "Your AI-assisted fence estimator."
     )
 
+    render_stepper("property")
+
     customer_property_context = render_customer_property_setup(
         compact_when_ready=bool(st.session_state.get("intake_mode"))
     )
 
     if not customer_property_context.get("address_selected"):
         return
+    render_stepper("intake")
 
     st.divider()
 
     intake_mode = render_intake_choice()
 
     if intake_mode is None:
+        render_workflow_pipeline("How FenceScope turns intake into an estimate")
         st.info("Choose one of the estimate paths above to continue.")
         return
 

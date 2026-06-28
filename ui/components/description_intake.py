@@ -11,6 +11,7 @@ from ui.state import (
     reset_guided_review_state,
 )
 from ui.workflows.guided_review import render_guided_estimate_workflow
+from ui.theme import render_workflow_pipeline
 
 
 BLOCKING_FIELDS = [
@@ -939,6 +940,7 @@ def render_review_details(customer_property_context: dict):
 
     st.divider()
 
+    render_workflow_pipeline("Description intake workflow")
     render_guided_estimate_workflow(
         payload=payload,
         customer_notes=payload.get("customer_notes", ""),

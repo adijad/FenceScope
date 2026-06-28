@@ -11,6 +11,7 @@ from ui.components.description_intake import (
     render_review_details,
 )
 from ui.state import reset_description_intake_state, reset_guided_review_state
+from ui.theme import render_workflow_pipeline
 
 
 def reset_voice_intake_state():
@@ -119,7 +120,7 @@ def render_transcript_review_panel(customer_property_context: dict):
     st.success("We transcribed your recording. Please review the text before continuing.")
 
     with st.container(border=True):
-        st.markdown("### Step 2: Review Your Project Description")
+        st.markdown("### Review Your Project Description")
 
         edited_transcript = st.text_area(
             "Editable transcript",
@@ -156,10 +157,11 @@ def render_transcript_review_panel(customer_property_context: dict):
                 st.rerun()
 
         st.caption(
-            "FenceScope will extract estimate details, ask missing questions, "
-            "then run compliance and pricing."
+            "FenceScope will use this transcript to extract project details, "
+            "ask missing questions, then run compliance and pricing."
         )
 
+    render_workflow_pipeline("Voice intake workflow")
 
 def render_voice_idle_entry(customer_property_context: dict):
     transcript_exists = bool(st.session_state.get("voice_transcript", "").strip())

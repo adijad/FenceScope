@@ -50,51 +50,60 @@ def render_intake_choice():
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        with st.container(border=True):
-            st.markdown("### Fill a guided form")
-            st.write(
-                "Best when you already know the fence type, height, length, gates, "
-                "removal needs, slope, and access details."
-            )
+        st.markdown(
+            """
+            <div class="fs-card">
+                <div class="fs-card-icon">📋</div>
+                <div class="fs-card-title">Fill a guided form</div>
+                <div class="fs-card-copy">
+                    Best when you already know the fence type, height, length, gates,
+                    removal needs, slope, and access details.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            if st.button(
-                "Use Guided Form",
-                type="primary",
-                key="select_guided_form_mode",
-            ):
-                st.session_state.intake_mode = GUIDED_FORM_MODE
-                st.rerun()
+        if st.button("Use Guided Form", type="primary", key="select_guided_form_mode"):
+            st.session_state.intake_mode = GUIDED_FORM_MODE
+            st.rerun()
 
     with col2:
-        with st.container(border=True):
-            st.markdown("### Write your project description")
-            st.write(
-                "Best when you want to explain the project naturally and let the AI "
-                "identify useful estimate details."
-            )
+        st.markdown(
+            """
+            <div class="fs-card">
+                <div class="fs-card-icon">✍️</div>
+                <div class="fs-card-title">Write your project</div>
+                <div class="fs-card-copy">
+                    Describe the project naturally. FenceScope will extract useful
+                    estimate details and ask only what is missing.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            if st.button(
-                "Write Description",
-                type="primary",
-                key="select_description_mode",
-            ):
-                st.session_state.intake_mode = DESCRIPTION_MODE
-                st.rerun()
+        if st.button("Write Description", type="primary", key="select_description_mode"):
+            st.session_state.intake_mode = DESCRIPTION_MODE
+            st.rerun()
 
     with col3:
-        with st.container(border=True):
-            st.markdown("### Talk about your project")
-            st.write(
-                "Best when you want to explain the project naturally by speaking. "
-                "FenceScope will transcribe your voice and let you review the text."
-            )
+        st.markdown(
+            """
+            <div class="fs-card">
+                <div class="fs-card-icon">🎙️</div>
+                <div class="fs-card-title">Talk about it</div>
+                <div class="fs-card-copy">
+                    Speak like you would on a phone call. FenceScope transcribes your
+                    voice and lets you review the text.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-            if st.button(
-                "Use Microphone",
-                type="primary",
-                key="select_voice_mode",
-            ):
-                st.session_state.intake_mode = VOICE_MODE
-                st.rerun()
+        if st.button("Use Microphone", type="primary", key="select_voice_mode"):
+            st.session_state.intake_mode = VOICE_MODE
+            st.rerun()
 
     return None

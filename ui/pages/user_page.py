@@ -42,7 +42,9 @@ def render_user_view():
         "Your AI-assisted fence estimator."
     )
 
-    customer_property_context = render_customer_property_setup()
+    customer_property_context = render_customer_property_setup(
+        compact_when_ready=bool(st.session_state.get("intake_mode"))
+    )
 
     if not customer_property_context.get("address_selected"):
         return

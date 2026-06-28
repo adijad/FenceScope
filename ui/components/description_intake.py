@@ -21,6 +21,15 @@ BLOCKING_FIELDS = [
     "gate_count",
 ]
 
+CONFIRMATION_FIELDS = [
+    "linear_feet",
+    "material_grade",
+    "access_level",
+    "brush_clearing",
+]
+
+MAX_DESCRIPTION_QUESTIONS = 5
+
 DEFAULT_FIELD_VALUES = {
     "material_grade": "standard",
     "gate_hardware": "standard",
@@ -41,6 +50,9 @@ FIELD_QUESTION_TEXT = {
     "height_ft": "What fence height do you want?",
     "yard_location": "Which yard area is this fence mainly for?",
     "gate_count": "How many walk gates do you need?",
+    "material_grade": "What material grade do you prefer?",
+    "access_level": "How easy is it for the crew to access the fence area?",
+    "brush_clearing": "Will any brush or obstruction clearing be needed?",
 }
 
 
@@ -105,13 +117,6 @@ def render_description_context(customer_property_context: dict):
 
 
 def render_description_guidance():
-    st.markdown(
-        """
-        Describe the project naturally. FenceScope will extract the useful details
-        and ask only the most important missing questions.
-        """
-    )
-
     with st.expander("What should I include?", expanded=False):
         st.markdown(
             """
@@ -230,46 +235,94 @@ def _apply_defaults_and_context(fields: dict, customer_property_context: dict) -
     return final_fields
 
 
+def _add_question(question_items: list[dict], seen_fields: set[str], field_name: str, question_text: str | None = None):
+    if field_name in seen_fields:
+        return
+
+    if len(question_items) >= MAX_DESCRIPTION_QUESTIONS:
+        return
+
+    question_items.append(
+        {
+            "field": field_name,
+            "question": question_text
+            or FIELD_QUESTION_TEXT.get(field_name)
+            or f"Please provide more detail for: {field_name}",
+        }
+    )
+    seen_fields.add(field_name)
+
+
 def _build_question_items(analysis: dict, customer_property_context: dict) -> list[dict]:
+    """
+    Builds the customer-facing question list.
+
+    Policy:
+    - Always ask truly missing blocking fields.
+    - Also ask a few high-value confirmation questions.
+    - Do not ask every optional add-on.
+    - Cap at MAX_DESCRIPTION_QUESTIONS so the flow stays lightweight.
+    """
+
     extracted = _clean_extracted_fields(analysis)
     final_preview = _apply_defaults_and_context(extracted, customer_property_context)
 
     model_missing_fields = analysis.get("missing_fields", []) or []
 
+    map_context = customer_property_context.get("map_context", {}) or {}
+    map_linear_feet = map_context.get("final_linear_feet")
+    drawn_feet = map_context.get("drawn_feet")
+
     question_items = []
     seen_fields = set()
 
-    for field_name in model_missing_fields:
-        if field_name in BLOCKING_FIELDS and field_name not in seen_fields:
-            if not _has_value(final_preview.get(field_name)):
-                question_items.append(
-                    {
-                        "field": field_name,
-                        "question": FIELD_QUESTION_TEXT.get(
-                            field_name,
-                            f"Please provide more detail for: {field_name}",
-                        ),
-                    }
-                )
-                seen_fields.add(field_name)
-
+    # 1. Ask genuinely missing blocking fields first.
     for field_name in BLOCKING_FIELDS:
-        if field_name in seen_fields:
-            continue
-
-        if not _has_value(final_preview.get(field_name)):
-            question_items.append(
-                {
-                    "field": field_name,
-                    "question": FIELD_QUESTION_TEXT.get(
-                        field_name,
-                        f"Please provide more detail for: {field_name}",
-                    ),
-                }
+        if field_name in model_missing_fields or not _has_value(final_preview.get(field_name)):
+            _add_question(
+                question_items=question_items,
+                seen_fields=seen_fields,
+                field_name=field_name,
             )
-            seen_fields.add(field_name)
 
-    return question_items
+    # 2. Ask the user to confirm map measurement when a map/fallback length is being used.
+    # This prevents "silent" length assumptions.
+    if map_linear_feet and "linear_feet" not in seen_fields:
+        label = "map measurement" if drawn_feet else "entered fallback length"
+
+        _add_question(
+            question_items=question_items,
+            seen_fields=seen_fields,
+            field_name="linear_feet",
+            question_text=(
+                f"Should we use the {label} of {float(map_linear_feet):,.0f} ft for the estimate?"
+            ),
+        )
+
+    # 3. Ask a small number of useful estimate-impact questions.
+    # These are not hard blockers, but they make the estimate feel intentional.
+    if not _has_value(extracted.get("material_grade")):
+        _add_question(
+            question_items=question_items,
+            seen_fields=seen_fields,
+            field_name="material_grade",
+        )
+
+    if not _has_value(extracted.get("access_level")):
+        _add_question(
+            question_items=question_items,
+            seen_fields=seen_fields,
+            field_name="access_level",
+        )
+
+    if not _has_value(extracted.get("brush_clearing")):
+        _add_question(
+            question_items=question_items,
+            seen_fields=seen_fields,
+            field_name="brush_clearing",
+        )
+
+    return question_items[:MAX_DESCRIPTION_QUESTIONS]
 
 
 def _answer_payload(field: str, value, display_answer: str, answered: bool = True) -> dict:
@@ -391,6 +444,73 @@ def render_question_input(question_item: dict, customer_property_context: dict) 
         )
 
         return _answer_payload(field, int(value), f"{int(value)} walk gate(s)")
+    
+    if field == "material_grade":
+        value = st.selectbox(
+            "Material grade",
+            ["Select an option", "economy", "standard", "premium", "not_sure"],
+            format_func=lambda item: {
+                "Select an option": "Select an option",
+                "economy": "Economy",
+                "standard": "Standard",
+                "premium": "Premium",
+                "not_sure": "Not sure, use standard for now",
+            }[item],
+            key=f"{key_base}_select",
+        )
+
+        if value == "Select an option":
+            return _answer_payload(field, None, "", answered=False)
+
+        if value == "not_sure":
+            return _answer_payload(field, "standard", "Not sure, use standard for now")
+
+        return _answer_payload(field, value, value.title())
+
+    if field == "access_level":
+        value = st.selectbox(
+            "Access to fence area",
+            ["Select an option", "easy", "limited", "difficult", "not_sure"],
+            format_func=lambda item: {
+                "Select an option": "Select an option",
+                "easy": "Easy access",
+                "limited": "Limited access",
+                "difficult": "Difficult access",
+                "not_sure": "Not sure, assume easy for now",
+            }[item],
+            key=f"{key_base}_select",
+        )
+
+        if value == "Select an option":
+            return _answer_payload(field, None, "", answered=False)
+
+        if value == "not_sure":
+            return _answer_payload(field, "easy", "Not sure, assume easy for now")
+
+        return _answer_payload(field, value, value.replace("_", " ").title())
+
+    if field == "brush_clearing":
+        value = st.selectbox(
+            "Brush or obstruction clearing",
+            ["Select an option", "none", "light", "moderate", "heavy", "not_sure"],
+            format_func=lambda item: {
+                "Select an option": "Select an option",
+                "none": "None",
+                "light": "Light",
+                "moderate": "Moderate",
+                "heavy": "Heavy",
+                "not_sure": "Not sure, assume none for now",
+            }[item],
+            key=f"{key_base}_select",
+        )
+
+        if value == "Select an option":
+            return _answer_payload(field, None, "", answered=False)
+
+        if value == "not_sure":
+            return _answer_payload(field, "none", "Not sure, assume none for now")
+
+        return _answer_payload(field, value, value.title())
 
     answer = st.text_input(
         "Answer",
@@ -464,6 +584,32 @@ def missing_required_for_description_payload(final_fields: dict) -> list[str]:
 
     return missing
 
+def build_flat_missing_answers() -> dict[str, str]:
+    """
+    Converts the description-question answer payloads into the shape expected
+    by backend.models.EstimateRequest.
+
+    Backend expects:
+        dict[str, str]
+
+    Not:
+        dict[str, dict]
+    """
+
+    answers = st.session_state.get("description_missing_answers") or {}
+
+    flat_answers = {}
+
+    for field, answer_payload in answers.items():
+        if not answer_payload:
+            continue
+
+        display_answer = answer_payload.get("display_answer")
+
+        if display_answer:
+            flat_answers[field] = str(display_answer)
+
+    return flat_answers
 
 def build_description_estimate_payload(
     customer_property_context: dict,
@@ -523,7 +669,7 @@ def build_description_estimate_payload(
         "stain_seal": _safe_bool(final_fields.get("stain_seal"), False),
         "permit_admin": _safe_bool(final_fields.get("permit_admin"), False),
         "customer_notes": final_fields.get("customer_notes") or "",
-        "missing_answers": st.session_state.get("description_missing_answers") or {},
+        "missing_answers": build_flat_missing_answers(),
     }
 
 
@@ -686,10 +832,6 @@ def render_not_relevant_result():
 
 
 def render_idle_description_entry(customer_property_context: dict):
-    render_description_context(customer_property_context)
-
-    st.divider()
-
     render_description_guidance()
 
     raw_description = render_description_text_area()

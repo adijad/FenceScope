@@ -117,6 +117,12 @@ def initialize_session_state():
     if "guided_form_prefill_applied" not in st.session_state:
         st.session_state.guided_form_prefill_applied = False
 
+    if "property_map_context" not in st.session_state:
+        st.session_state.property_map_context = {}
+
+    if "editing_property_setup" not in st.session_state:
+        st.session_state.editing_property_setup = False
+
 
 def reset_workflow_state():
     """
@@ -193,6 +199,7 @@ def reset_intake_state():
 
     st.session_state.intake_mode = None
     st.session_state.raw_project_description = ""
+    st.session_state.editing_property_setup = False
     reset_description_intake_state()
 
 

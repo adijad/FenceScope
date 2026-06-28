@@ -94,7 +94,7 @@ access_level: easy, limited, difficult
 brush_clearing: none, light, moderate, heavy
 
 Missing field policy:
-Only include customer-facing missing_fields for details that block a useful preliminary estimate: fence_type, height_ft, linear_feet, yard_location, and gate_count. Do not ask the customer for every optional pricing add-on. Use assumptions for common optional fields unless the user explicitly mentions uncertainty or risk. Default assumptions are material_grade=standard, gate_hardware=standard, access_level=easy, brush_clearing=none, stain_seal=false, permit_admin=false, double_gate_count=0, old_fence_removal=false, slope_present=false, slope_severity=none.
+Only include customer-facing missing_fields for details that block a useful preliminary estimate: fence_type, height_ft, linear_feet, yard_location, and gate_count. Do not ask the customer for every optional pricing add-on. Do not put default assumptions into extracted_fields unless the customer explicitly stated them. The frontend may later apply assumptions such as material_grade=standard, gate_hardware=standard, access_level=easy, brush_clearing=none, stain_seal=false, permit_admin=false, double_gate_count=0, old_fence_removal=false, slope_present=false, and slope_severity=none.
 
 Return JSON with exactly this top-level shape:
 {
@@ -378,7 +378,15 @@ def _normalize_llm_payload(data: dict[str, Any], request: IntakeTextRequest) -> 
         return data
 
     _use_map_context_when_available(extracted, request)
-    _apply_defaultable_fields(extracted)
+
+    # Do not apply optional defaults here.
+    # The frontend description lane applies assumptions later and decides
+    # which high-value questions to ask. This keeps extracted_fields closer
+    # to what the customer actually said or what the map provided.
+    data["missing_fields"] = _customer_facing_missing_fields(
+        model_missing_fields=data.get("missing_fields", []),
+        extracted=extracted,
+    )
 
     data["missing_fields"] = _customer_facing_missing_fields(
         model_missing_fields=data.get("missing_fields", []),

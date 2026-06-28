@@ -122,6 +122,12 @@ def initialize_session_state():
 
     if "editing_property_setup" not in st.session_state:
         st.session_state.editing_property_setup = False
+    
+    if "voice_transcript" not in st.session_state:
+        st.session_state.voice_transcript = ""
+
+    if "voice_transcription_error" not in st.session_state:
+        st.session_state.voice_transcription_error = None
 
 
 def reset_workflow_state():
@@ -190,6 +196,8 @@ def reset_description_intake_state():
     st.session_state.description_analysis_error = None
     st.session_state.prefilled_fields = {}
     st.session_state.guided_form_prefill_applied = False
+    st.session_state.voice_transcript = ""
+    st.session_state.voice_transcription_error = None
 
 
 def reset_intake_state():
@@ -200,6 +208,8 @@ def reset_intake_state():
     st.session_state.intake_mode = None
     st.session_state.raw_project_description = ""
     st.session_state.editing_property_setup = False
+    st.session_state.voice_transcript = ""
+    st.session_state.voice_transcription_error = None
     reset_description_intake_state()
 
 

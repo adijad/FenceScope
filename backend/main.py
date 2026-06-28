@@ -1,8 +1,9 @@
 import hmac
 import os
 
+
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Query, HTTPException, status
+from fastapi import Depends, FastAPI, Query, HTTPException, status, UploadFile, File
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +35,7 @@ from backend.risk_agent import analyze_risks
 from backend.storage import create_customer, create_estimate, get_all_estimates
 from backend.workflow import run_estimate_workflow
 from backend.intake_agent import analyze_text_intake
+from backend.voice_agent import transcribe_project_audio
 
 
 load_dotenv()
@@ -292,7 +294,35 @@ def analyze_intake_text(request: IntakeTextRequest):
     """
     return analyze_text_intake(request)
 
+@app.post("/intake/transcribe-audio")
+async def transcribe_audio_intake(audio_file: UploadFile = File(...)):
+    """
+    Customer-facing endpoint.
 
+    Converts browser microphone recording into transcript text.
+    Does not create an estimate.
+    Does not run pricing.
+    Does not run compliance.
+    """
+
+    try:
+        return await transcribe_project_audio(audio_file)
+
+    except ValueError as error:
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Could not transcribe audio.",
+                "error": str(error),
+            },
+        )
+    
 @app.post("/questions", response_model=MissingQuestionsResult)
 def get_missing_questions(request: EstimateRequest):
     """

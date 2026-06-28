@@ -4,9 +4,11 @@ import streamlit as st
 
 from ui.components.description_intake import render_description_intake
 from ui.components.guided_form import render_guided_form_payload
+from ui.components.voice_intake import render_voice_intake
 from ui.components.intake_choice import (
     DESCRIPTION_MODE,
     GUIDED_FORM_MODE,
+    VOICE_MODE,
     render_intake_choice,
 )
 from ui.components.property_setup import render_customer_property_setup
@@ -70,6 +72,10 @@ def render_user_view():
 
     if intake_mode == DESCRIPTION_MODE:
         render_description_intake(customer_property_context)
+        return
+    
+    if intake_mode == VOICE_MODE:
+        render_voice_intake(customer_property_context)
         return
 
     st.warning("Unknown intake mode selected. Please choose an estimate path again.")

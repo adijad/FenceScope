@@ -10,6 +10,7 @@ from ui.config import (
     ADDRESS_AUTOCOMPLETE_URL,
     ADDRESS_PLACE_URL,
     INTAKE_ANALYZE_TEXT_URL,
+    INTAKE_TRANSCRIBE_AUDIO_URL,
     EMAIL_SUMMARY_URL,
     ADMIN_DECISION_URL,
     ADMIN_PROPOSAL_EMAIL_URL,
@@ -120,6 +121,31 @@ def analyze_text_intake_request(payload: dict) -> dict:
     response.raise_for_status()
     return response.json()
 
+
+def transcribe_audio_intake_request(audio_file) -> dict:
+    """
+    Sends microphone-recorded audio to FastAPI for transcription.
+
+    From the user's perspective, this is not a manual upload.
+    Streamlit gives us the microphone recording as an in-memory audio file.
+    """
+
+    files = {
+        "audio_file": (
+            audio_file.name or "voice_project.wav",
+            audio_file.getvalue(),
+            audio_file.type or "audio/wav",
+        )
+    }
+
+    response = requests.post(
+        INTAKE_TRANSCRIBE_AUDIO_URL,
+        files=files,
+        timeout=120,
+    )
+
+    response.raise_for_status()
+    return response.json()
 
 # ---------------------------------------------------------
 # Customer email API calls

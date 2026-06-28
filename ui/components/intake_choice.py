@@ -5,6 +5,7 @@ import streamlit as st
 
 GUIDED_FORM_MODE = "guided_form"
 DESCRIPTION_MODE = "description"
+VOICE_MODE = "voice"
 
 
 def reset_intake_choice():
@@ -18,6 +19,7 @@ def render_intake_choice():
     Returns:
         "guided_form"
         "description"
+        "voice"
         None
     """
 
@@ -34,6 +36,7 @@ def render_intake_choice():
         selected_label = {
             GUIDED_FORM_MODE: "Guided form",
             DESCRIPTION_MODE: "Project description",
+            VOICE_MODE: "Talk about your project",
         }.get(selected_mode, selected_mode)
 
         st.success(f"Selected path: {selected_label}")
@@ -44,7 +47,7 @@ def render_intake_choice():
 
         return selected_mode
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
         with st.container(border=True):
@@ -76,6 +79,22 @@ def render_intake_choice():
                 key="select_description_mode",
             ):
                 st.session_state.intake_mode = DESCRIPTION_MODE
+                st.rerun()
+
+    with col3:
+        with st.container(border=True):
+            st.markdown("### Talk about your project")
+            st.write(
+                "Best when you want to explain the project naturally by speaking. "
+                "FenceScope will transcribe your voice and let you review the text."
+            )
+
+            if st.button(
+                "Use Microphone",
+                type="primary",
+                key="select_voice_mode",
+            ):
+                st.session_state.intake_mode = VOICE_MODE
                 st.rerun()
 
     return None

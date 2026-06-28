@@ -4,9 +4,8 @@ import json
 
 import streamlit as st
 
-from ui.components.address import render_address_selector
 from ui.components.gate_plan import render_map_gate_plan
-from ui.components.map import render_property_map
+from ui.components.property_setup import render_customer_property_setup
 from ui.components.yard_sections import (
     derive_primary_yard_location,
     render_yard_sections,
@@ -55,12 +54,35 @@ BRUSH_CLEARING_OPTIONS = [
 ]
 
 
+def _safe_float(value, default=0.0):
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _get_map_context(customer_property_context: dict) -> dict:
+    return customer_property_context.get("map_context") or {}
+
+
+def _get_shared_linear_feet(customer_property_context: dict) -> float:
+    map_context = _get_map_context(customer_property_context)
+
+    return _safe_float(
+        map_context.get("final_linear_feet")
+        or map_context.get("fallback_linear_feet")
+        or 186.0,
+        default=186.0,
+    )
+
+
 def _set_payload_fingerprint(payload: dict):
     """
     Tracks whether project details changed after a review was started.
 
-    This preserves the behavior from the original app.py:
-    if the user changes project details, the review workflow must restart.
+    If the user changes project details, the review workflow must restart.
     """
     payload_fingerprint = json.dumps(payload, sort_keys=True)
 
@@ -77,56 +99,47 @@ def _set_payload_fingerprint(payload: dict):
         st.session_state.last_payload_fingerprint = payload_fingerprint
 
 
-def render_customer_details():
-    st.subheader("1. Customer Details")
+def render_map_measurement_summary(customer_property_context: dict):
+    map_context = _get_map_context(customer_property_context)
 
-    customer_col1, customer_col2, customer_col3 = st.columns(3)
+    drawn_feet = map_context.get("drawn_feet")
+    use_map_measurement = map_context.get("use_map_measurement")
+    final_linear_feet = _safe_float(map_context.get("final_linear_feet"), default=0.0)
+    gate_points = map_context.get("gate_points", [])
 
-    with customer_col1:
-        customer_name = st.text_input(
-            "Customer name",
-            value="Sarah Miller",
-            key="customer_name",
-        )
+    st.subheader("4. Fence Project Details")
 
-    with customer_col2:
-        customer_email = st.text_input(
-            "Email address",
-            value="sarah@example.com",
-            key="customer_email",
-        )
+    with st.container(border=True):
+        st.markdown("**Shared property/map context**")
 
-    with customer_col3:
-        customer_phone = st.text_input(
-            "Phone number",
-            value="(540) 555-0198",
-            key="customer_phone",
-        )
+        if drawn_feet:
+            st.success(f"Map measurement detected: {float(drawn_feet):,.2f} linear feet")
+        else:
+            st.info("No map fence line detected. The estimate will use the length entered below.")
 
-    return {
-        "customer_name": customer_name,
-        "customer_email": customer_email,
-        "customer_phone": customer_phone,
-    }
+        if use_map_measurement and final_linear_feet > 0:
+            st.write(f"**Current length from shared setup:** {final_linear_feet:,.2f} ft")
+        elif final_linear_feet > 0:
+            st.write(f"**Current fallback length from shared setup:** {final_linear_feet:,.2f} ft")
+
+        if gate_points:
+            st.write(f"**Gate markers detected:** {len(gate_points)}")
+        else:
+            st.write("**Gate markers detected:** 0")
 
 
-def render_property_details():
-    st.subheader("2. Property Details")
-
-    return render_address_selector(
-        label="Search property address",
-        placeholder="Start typing property address...",
-        key="property_address_autocomplete",
-    )
-
-
-def render_job_details():
+def render_job_details(customer_property_context: dict):
     """
-    Renders the structured fence/job input form.
+    Renders only the structured fence/job details.
 
-    Returns the raw job detail fields before map measurement and gate-plan logic
-    are applied.
+    Customer details, address selection, and map drawing are now handled by
+    property_setup.py.
     """
+
+    shared_linear_feet = _get_shared_linear_feet(customer_property_context)
+
+    render_map_measurement_summary(customer_property_context)
+
     job_col1, job_col2 = st.columns(2)
 
     with job_col1:
@@ -155,12 +168,16 @@ def render_job_details():
             key="height_ft",
         )
 
-        manual_linear_feet = st.number_input(
-            "Manual measured fence length fallback",
+        linear_feet_for_estimate = st.number_input(
+            "Fence length for estimate",
             min_value=1.0,
-            value=186.0,
+            value=float(shared_linear_feet),
             step=1.0,
-            key="manual_linear_feet",
+            key="linear_feet_for_estimate",
+            help=(
+                "This defaults to the map measurement when available. "
+                "You can adjust it before generating the estimate."
+            ),
         )
 
         stain_seal = st.checkbox(
@@ -215,7 +232,7 @@ def render_job_details():
             removal_length_feet = st.number_input(
                 "Approx. old fence removal length",
                 min_value=0.0,
-                value=float(manual_linear_feet),
+                value=float(linear_feet_for_estimate),
                 step=1.0,
                 help=(
                     "Use 0 if unknown. The pricing engine will fall back to total fence length."
@@ -262,7 +279,7 @@ def render_job_details():
         "fence_type": fence_type,
         "material_grade": material_grade,
         "height_ft": height_ft,
-        "manual_linear_feet": manual_linear_feet,
+        "linear_feet_for_estimate": linear_feet_for_estimate,
         "stain_seal": stain_seal,
         "access_level": access_level,
         "gate_count": gate_count,
@@ -280,8 +297,7 @@ def render_job_details():
 
 
 def build_estimate_payload(
-    customer_details: dict,
-    property_details: dict,
+    customer_property_context: dict,
     job_details: dict,
     final_linear_feet: float,
     final_gate_count: int,
@@ -293,12 +309,12 @@ def build_estimate_payload(
     customer_notes = job_details["customer_notes"]
 
     return {
-        "customer_name": customer_details["customer_name"],
-        "customer_email": customer_details["customer_email"],
-        "customer_phone": customer_details["customer_phone"],
-        "address": property_details["selected_address"],
-        "property_lat": property_details["property_lat"],
-        "property_lng": property_details["property_lng"],
+        "customer_name": customer_property_context["customer_name"],
+        "customer_email": customer_property_context["customer_email"],
+        "customer_phone": customer_property_context["customer_phone"],
+        "address": customer_property_context["selected_address"],
+        "property_lat": customer_property_context["property_lat"],
+        "property_lng": customer_property_context["property_lng"],
         "fence_type": job_details["fence_type"],
         "height_ft": job_details["height_ft"],
         "linear_feet": final_linear_feet,
@@ -325,44 +341,35 @@ def build_estimate_payload(
     }
 
 
-def render_guided_form_payload():
+def render_guided_form_payload(customer_property_context: dict | None = None):
     """
-    Renders the current full structured form flow and returns:
+    Renders the guided form details and returns:
 
     {
         "payload": EstimateRequest-compatible dict,
-        "customer_notes": raw customer notes before gate-plan notes
+        "customer_notes": raw customer notes before gate-plan notes,
+        "drawn_feet": map measurement if available
     }
 
-    This is intentionally behavior-preserving. The future map-first and
-    description-intake flow will be built after app.py becomes modular.
+    Backward-compatible behavior:
+    - If customer_property_context is not passed, this function renders the
+      customer/property/map setup itself.
+
+    Future behavior:
+    - user_page.py will render property_setup.py first, then pass the shared
+      context into this function.
     """
-    customer_details = render_customer_details()
 
-    st.divider()
+    if customer_property_context is None:
+        customer_property_context = render_customer_property_setup()
+        st.divider()
 
-    property_details = render_property_details()
+    job_details = render_job_details(customer_property_context)
 
-    st.divider()
+    map_context = _get_map_context(customer_property_context)
+    gate_points = map_context.get("gate_points", [])
 
-    job_details = render_job_details()
-
-    st.divider()
-
-    map_result = render_property_map(
-        manual_linear_feet=job_details["manual_linear_feet"],
-        section_title="3. Map-Based Fence Measurement",
-        section_caption=(
-            "Draw the proposed fence line on the satellite map. "
-            "The app calculates total linear footage from the drawn path."
-        ),
-        map_key="fence_map",
-        show_manual_center_controls=True,
-    )
-
-    drawn_feet = map_result["drawn_feet"]
-    gate_points = map_result["gate_points"]
-    final_linear_feet = map_result["final_linear_feet"]
+    final_linear_feet = float(job_details["linear_feet_for_estimate"])
 
     st.divider()
 
@@ -388,8 +395,7 @@ def render_guided_form_payload():
     st.divider()
 
     payload = build_estimate_payload(
-        customer_details=customer_details,
-        property_details=property_details,
+        customer_property_context=customer_property_context,
         job_details=job_details,
         final_linear_feet=final_linear_feet,
         final_gate_count=final_gate_count,
@@ -404,5 +410,5 @@ def render_guided_form_payload():
     return {
         "payload": payload,
         "customer_notes": job_details["customer_notes"],
-        "drawn_feet": drawn_feet,
+        "drawn_feet": map_context.get("drawn_feet"),
     }
